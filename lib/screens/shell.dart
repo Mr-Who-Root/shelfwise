@@ -144,7 +144,7 @@ class _HomeLibToggleBtnState extends State<_HomeLibToggleBtn> {
   }
 
   void _toggle() {
-    Buzz.pop();
+    Buzz.medium();
     Sfx.play('tap');
     if (_libMode || widget.tab == 1) {
       setState(() => _libMode = false);
