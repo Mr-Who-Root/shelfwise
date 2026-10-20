@@ -322,8 +322,14 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
                     left: (s.x / 100 * totalWidth).clamp(10.0, totalWidth - 50.0),
                     bottom: (s.y / 100 * glassH).clamp(4.0, glassH - 24.0),
                     child: _ShelfStickerView(
+                      key: ValueKey(s.id),
                       sticker: s,
                       home: widget.home,
+                      totalWidth: totalWidth,
+                      glassH: glassH,
+                      onMoved: (nx, ny) {
+                        store.moveSticker(widget.col, s.id, nx, ny);
+                      },
                       onRemove: (tear) {
                         store.removeSticker(widget.col, s.id);
                         Sfx.play(tear ? 'tear' : 'pop');
@@ -838,66 +844,138 @@ class _LightsPainter extends CustomPainter {
   bool shouldRepaint(covariant _LightsPainter old) => old.kind != kind;
 }
 
-class _ShelfStickerView extends StatelessWidget {
+class _ShelfStickerView extends StatefulWidget {
   final ShelfSticker sticker;
   final bool home;
+  final double totalWidth;
+  final double glassH;
+  final void Function(double newX, double newY) onMoved;
   final void Function(bool tear) onRemove;
 
   const _ShelfStickerView({
+    super.key,
     required this.sticker,
     required this.home,
+    required this.totalWidth,
+    required this.glassH,
+    required this.onMoved,
     required this.onRemove,
   });
 
   @override
+  State<_ShelfStickerView> createState() => _ShelfStickerViewState();
+}
+
+class _ShelfStickerViewState extends State<_ShelfStickerView> {
+  bool _dragging = false;
+  double _dragDx = 0;
+  double _dragDy = 0;
+  bool _didDrag = false;
+
+  @override
   Widget build(BuildContext context) {
-    final def = shelfStickers[sticker.kind] ?? shelfStickers['star']!;
-    return Transform.rotate(
-      angle: sticker.r * pi / 180,
-      child: GestureDetector(
-        onTap: home
-            ? null
-            : () {
+    final def = shelfStickers[widget.sticker.kind] ?? shelfStickers['star']!;
+
+    return Transform.translate(
+      offset: Offset(_dragDx, _dragDy),
+      child: Transform.scale(
+        scale: _dragging ? 1.18 : 1.0,
+        child: Transform.rotate(
+          angle: (widget.sticker.r + (_dragging ? 4.0 : 0.0)) * pi / 180,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onPanStart: (_) {
+              _didDrag = false;
+              setState(() {
+                _dragging = true;
+                _dragDx = 0;
+                _dragDy = 0;
+              });
+              Buzz.tick();
+            },
+            onPanUpdate: (details) {
+              if (details.delta.dx.abs() > 0.4 || details.delta.dy.abs() > 0.4) {
+                _didDrag = true;
+              }
+              setState(() {
+                _dragDx += details.delta.dx;
+                _dragDy += details.delta.dy;
+              });
+            },
+            onPanEnd: (_) {
+              if (_didDrag) {
+                // Current pixel coordinates within shelf band
+                final curPx = (widget.sticker.x / 100 * widget.totalWidth) + _dragDx;
+                // dy is downward, bottom is upward
+                final curPy = (widget.sticker.y / 100 * widget.glassH) - _dragDy;
+                final newX = (curPx / widget.totalWidth * 100).clamp(2.0, 96.0);
+                final newY = (curPy / widget.glassH * 100).clamp(2.0, 90.0);
+                widget.onMoved(newX, newY);
                 Buzz.tick();
                 Sfx.play('tap');
-                openDialog((ctx) => AppDialog(
-                      title: '${def.name} sticker',
-                      children: [
-                        Center(
-                          child: SizedBox(
-                            width: 64,
-                            height: 64,
-                            child: SvgPicture.string(def.svg),
-                          ),
+              }
+              setState(() {
+                _dragging = false;
+                _dragDx = 0;
+                _dragDy = 0;
+              });
+            },
+            onTap: () {
+              if (_didDrag) return;
+              Buzz.tick();
+              Sfx.play('tap');
+              openDialog((ctx) => AppDialog(
+                    title: '${def.name} sticker',
+                    children: [
+                      Center(
+                        child: SizedBox(
+                          width: 64,
+                          height: 64,
+                          child: SvgPicture.string(def.svg),
                         ),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'Tap Tear off to tear this sticker away from your shelf, or Remove to take it off cleanly.',
-                          textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Drag this sticker to move it anywhere across your shelf. Tap Tear off to tear it away, or Remove to take it off cleanly.',
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                    actions: [
+                      const Btn('Cancel'),
+                      Btn('Tear off', kind: Kind.pri, onTap: () {
+                        widget.onRemove(true);
+                        return true;
+                      }),
+                      Btn('Remove', kind: Kind.dng, onTap: () {
+                        widget.onRemove(false);
+                        return true;
+                      }),
+                    ],
+                  ));
+            },
+            child: Container(
+              width: 44,
+              height: 44,
+              decoration: _dragging
+                  ? BoxDecoration(
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.28),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
                         ),
                       ],
-                      actions: [
-                        const Btn('Cancel'),
-                        Btn('Tear off', kind: Kind.pri, onTap: () {
-                          onRemove(true);
-                          return true;
-                        }),
-                        Btn('Remove', kind: Kind.dng, onTap: () {
-                          onRemove(false);
-                          return true;
-                        }),
-                      ],
-                    ));
-              },
-        child: SizedBox(
-          width: 44,
-          height: 44,
-          child: SvgPicture.string(def.svg),
+                    )
+                  : null,
+              child: SvgPicture.string(def.svg),
+            ),
+          ),
         ),
       ),
     );
   }
 }
+
 
 class _Shadowed extends StatelessWidget {
   final Widget child;

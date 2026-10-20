@@ -283,6 +283,17 @@ class AppStore extends ChangeNotifier {
     changed();
   }
 
+  void moveSticker(Collection c, String stickerId, double x, double y) {
+    for (final s in c.stickers) {
+      if (s.id == stickerId) {
+        s.x = x.clamp(2.0, 96.0);
+        s.y = y.clamp(2.0, 90.0);
+        changed();
+        break;
+      }
+    }
+  }
+
   Collection? colOf(Item it) {
     for (final c in cols) {
       if (c.items.contains(it)) return c;

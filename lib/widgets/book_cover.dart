@@ -129,15 +129,15 @@ class CoverFace extends StatelessWidget {
               ),
             ),
           ),
-          // Status Bookmark (Reading / Finished)
-          if (status == 'r' || status == 'f')
+          // Status Bookmark: only reading books get a bookmark, not finished books
+          if (status == 'r')
             Positioned(
               top: 0,
               right: w * .12,
               width: max(10, w * .15),
               height: max(18, h * .24),
-              child: CustomPaint(
-                painter: _StatusBookmark(finished: status == 'f'),
+              child: const CustomPaint(
+                painter: _StatusBookmark(finished: false),
               ),
             ),
           if (hasCopy)

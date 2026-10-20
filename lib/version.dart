@@ -1,3 +1,3 @@
-const appVersion = '1.5.1';
+const appVersion = '1.5.2';
 const siteUrl = 'https://mr-who-root.github.io/shelfwise/';
 const repoUrl = 'https://github.com/RajkumarPadmanabhan/shelfwise.apk';
