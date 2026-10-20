@@ -226,6 +226,7 @@ class _PetOverlayState extends State<PetOverlay> with TickerProviderStateMixin {
         await Future.delayed(const Duration(milliseconds: 500));
         continue;
       }
+      if (!mounted) return;
       final size = MediaQuery.sizeOf(context);
       final padding = MediaQuery.paddingOf(context);
       final floor = _floorY(size, padding);
@@ -422,7 +423,7 @@ class _PetOverlayState extends State<PetOverlay> with TickerProviderStateMixin {
                       animation: _anim,
                       builder: (_, _) => Transform(
                         alignment: Alignment.bottomCenter,
-                        transform: Matrix4.identity()..scale(_facing, 1.0, 1.0),
+                        transform: Matrix4.identity()..scaleByDouble(_facing, 1.0, 1.0),
                         child: CustomPaint(
                           size: const Size(70, 56),
                           painter: _PetPainter(

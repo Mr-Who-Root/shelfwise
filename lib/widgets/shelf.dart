@@ -12,6 +12,7 @@ import '../services/sfx.dart';
 import '../theme.dart';
 import 'book_cover.dart';
 import 'common.dart';
+import 'dialogs.dart';
 import 'pet_overlay.dart';
 
 class _Slot {
