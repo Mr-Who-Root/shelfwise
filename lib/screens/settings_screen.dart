@@ -14,6 +14,7 @@ import '../version.dart';
 import '../widgets/common.dart';
 import '../widgets/dialogs.dart';
 import 'library_screen.dart';
+import 'tour.dart';
 
 /// Settings, as a full page: appearance, backup, alerts and the rest.
 class SettingsScreen extends StatefulWidget {
@@ -198,6 +199,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             sec(const H2('More')),
             sec(_card([
               _item('🎁', 'Rewards', sub: store.unclaimed.isEmpty ? 'See what’s next' : '${store.unclaimed.length} waiting for you', onTap: openRewards),
+              _item('🧭', 'Take the tour', sub: 'A quick look at everything Shelfwise does', onTap: () => Navigator.of(context).push(tourRoute())),
               _item('🔁', 'Replay intro', sub: 'See the welcome screens again', onTap: widget.onReplay),
               _item('ℹ️', 'About Shelfwise', sub: 'Version $appVersion', onTap: () => setState(() => _about = !_about), open: _about),
               AnimatedSize(

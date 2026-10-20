@@ -7,6 +7,8 @@ import 'data/store.dart';
 import 'look.dart';
 import 'screens/onboarding.dart';
 import 'screens/shell.dart';
+import 'screens/splash.dart';
+import 'screens/tour.dart';
 import 'services/notify.dart';
 import 'services/sfx.dart';
 import 'theme.dart';
@@ -39,7 +41,7 @@ class ShelfwiseApp extends StatelessWidget {
           final mq = MediaQuery.of(context);
           return MediaQuery(
             data: mq.copyWith(textScaler: TextScaler.linear(mq.textScaler.scale(1) * store.settings.textScale)),
-            child: FxHost(child: child!),
+            child: FxHost(child: SplashGate(child: child!)),
           );
         },
         home: const _Root(),
@@ -57,6 +59,7 @@ class _Root extends StatefulWidget {
 
 class _RootState extends State<_Root> with WidgetsBindingObserver {
   late bool _on = store.onboarded;
+  late bool _toured = store.toured;
   late final AppLifecycleListener _life = AppLifecycleListener(
     onPause: store.flush,
     onDetach: store.flush,
@@ -75,7 +78,12 @@ class _RootState extends State<_Root> with WidgetsBindingObserver {
   void didChangePlatformBrightness() => Look.apply(animate: true);
 
   void _check() {
-    if (store.onboarded != _on) setState(() => _on = store.onboarded);
+    if (store.onboarded != _on || store.toured != _toured) {
+      setState(() {
+        _on = store.onboarded;
+        _toured = store.toured;
+      });
+    }
     Look.apply(animate: true);
   }
 
@@ -96,7 +104,11 @@ class _RootState extends State<_Root> with WidgetsBindingObserver {
         opacity: a,
         child: ScaleTransition(scale: Tween(begin: 1.03, end: 1.0).animate(a), child: c),
       ),
-      child: _on ? const Shell(key: ValueKey('app')) : const Onboarding(key: ValueKey('intro')),
+      child: !_on
+          ? const Onboarding(key: ValueKey('intro'))
+          : _toured
+              ? const Shell(key: ValueKey('app'))
+              : const Tour(key: ValueKey('tour')),
     );
   }
 }

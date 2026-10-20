@@ -57,6 +57,7 @@ class AppStore extends ChangeNotifier {
   late Directory bookFiles;
 
   bool onboarded = false;
+  bool toured = false;
   Profile profile = Profile();
   List<Collection> cols = [];
   List<String> headings = [];
@@ -88,6 +89,7 @@ class AppStore extends ChangeNotifier {
   Map<String, dynamic> toJson() => {
         'v': 1,
         'onboarded': onboarded,
+        'toured': toured,
         'profile': profile.toJson(),
         'cols': cols.map((c) => c.toJson()).toList(),
         'headings': headings,
@@ -99,6 +101,7 @@ class AppStore extends ChangeNotifier {
 
   void fromJson(Map<String, dynamic> j) {
     onboarded = j['onboarded'] == true;
+    toured = j['toured'] == true;
     profile = Profile.fromJson(((j['profile'] ?? const {}) as Map).cast<String, dynamic>());
     cols = ((j['cols'] ?? const []) as List).map((e) => Collection.fromJson((e as Map).cast<String, dynamic>())).toList();
     headings = ((j['headings'] ?? const []) as List).cast<String>().toList();
@@ -480,6 +483,7 @@ class AppStore extends ChangeNotifier {
       ];
     }
     onboarded = true;
+    toured = false;
     changed();
   }
 
@@ -599,6 +603,7 @@ class AppStore extends ChangeNotifier {
     fromJson(b.data);
     settings = keepSettings; // reminders/sounds are a property of this phone
     onboarded = true;
+    toured = true;
     changed();
     await flush();
   }
