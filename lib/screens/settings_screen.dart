@@ -295,6 +295,79 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             )),
             sec(_section(
+              id: 'shelf_style',
+              emoji: '🪵',
+              title: 'Shelf style',
+              subtitle: 'Glass, wood, iron or plastic materials',
+              child: CardBox(
+                pad: const EdgeInsets.all(16),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  _label('Shelf material'),
+                  Text('Applies to every shelf in My Library and Home.', style: nu(13, FontWeight.w600, C.muted)),
+                  const SizedBox(height: 12),
+                  Row(children: [
+                    for (final (k, l) in const [
+                      ('glass', 'Glass'),
+                      ('wood', 'Wood'),
+                      ('iron', 'Iron'),
+                      ('plastic', 'Plastic'),
+                    ]) ...[
+                      Expanded(
+                        child: _ShelfStyleTile(
+                          kind: k,
+                          label: l,
+                          on: s.shelfStyle == k,
+                          onTap: () {
+                            _set(() => s.shelfStyle = k);
+                            Sfx.play('tap');
+                            toast('Shelf style: $l');
+                          },
+                        ),
+                      ),
+                      if (k != 'plastic') const SizedBox(width: 8),
+                    ],
+                  ]),
+                ]),
+              ),
+            )),
+            sec(_section(
+              id: 'pets',
+              emoji: '🐾',
+              title: 'Pets',
+              subtitle: 'Companion for Home, To-do and your reading journey',
+              child: CardBox(
+                pad: const EdgeInsets.all(16),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  _label('Choose your companion'),
+                  Text(
+                    'Your pet roams your screens, hops onto shelves on Home, and visits your to-dos. Double-tap it to shoo it away.',
+                    style: nu(13, FontWeight.w600, C.muted),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(spacing: 10, runSpacing: 10, children: [
+                    for (final (k, l, e) in const [
+                      ('none', 'No pet', '🚫'),
+                      ('cat', 'Cat', '🐱'),
+                      ('dog', 'Dog', '🐶'),
+                      ('rabbit', 'Rabbit', '🐰'),
+                      ('bird', 'Bird', '🐦'),
+                    ])
+                      _PetChoiceTile(
+                        kind: k,
+                        label: l,
+                        emoji: e,
+                        on: s.pet == k,
+                        onTap: () {
+                          _set(() => s.pet = k);
+                          Sfx.pet(k, 'call');
+                          toast(k == 'none' ? 'No pet' : '$l is on its way!');
+                        },
+                      ),
+                  ]),
+                ]),
+              ),
+            )),
+            sec(_section(
               id: 'backup',
               emoji: '💾',
               title: 'Backup & restore',
@@ -465,20 +538,101 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _aboutBody() => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        child: Column(children: [
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Center(
+            child: Text('About Readers', style: nu(20, FontWeight.w800, C.ink)),
+          ),
+          const SizedBox(height: 14),
+          Text('Welcome to Your Reading Sanctuary', style: nu(16, FontWeight.w800, C.brown)),
+          const SizedBox(height: 6),
           Text(
-            'A cozy home for the books you love and the reading plans you make. No account, no ads. '
-            'The internet is only used to check for updates and to look up books you scan. '
-            'Use Share backup to keep a copy safe or to move to a new phone.',
-            textAlign: TextAlign.center,
-            style: nu(13, FontWeight.w600, C.body, 1.45),
+            'Readers is built for people who believe that the books we choose shape the lives we live. Whether you are tracking a towering stack of fantasy epics, organizing cozy beach reads, or sharing your exact emotional state after finishing a heartbreaking novel, Readers turns your personal bookshelf into an interactive home.',
+            style: nu(13.5, FontWeight.w600, C.body, 1.45),
+          ),
+          const SizedBox(height: 16),
+          Divider(height: 1, color: C.line),
+          const SizedBox(height: 16),
+          Text('What Makes Readers Special?', style: nu(16, FontWeight.w800, C.brown)),
+          const SizedBox(height: 10),
+          _aboutFeature(
+            'Your Virtual Bookshelf',
+            'Build shelves, add sub-shelves, decorate them with plants, lamps, and stickers, and even arrange your books just how you like them with tactile drag-and-drop mechanics.',
+          ),
+          _aboutFeature(
+            'Vibe-Driven Discovery',
+            'Move beyond star ratings. Describe books using intuitive, community-driven vibe words—from Page-turner and Slow burn to Made me cry.',
+          ),
+          _aboutFeature(
+            'Connected Reading',
+            'Follow friends, see what books they are opening next, trade recommendations, and explore what fellow readers around the world are feeling.',
+          ),
+          _aboutFeature(
+            'Cozy by Design',
+            'Enjoy a distraction-free, beautifully crafted interface complete with full dark mode support, custom shelf materials, and tactile interactions.',
           ),
           const SizedBox(height: 12),
+          Divider(height: 1, color: C.line),
+          const SizedBox(height: 16),
+          Text('Developer & Creator', style: nu(16, FontWeight.w800, C.brown)),
+          const SizedBox(height: 6),
+          Text(
+            'Readers was thoughtfully designed, architected, and built from the ground up by:',
+            style: nu(13.5, FontWeight.w600, C.body, 1.4),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: C.brown.withValues(alpha: .1),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: C.brown.withValues(alpha: .35)),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('R Rajkumar Padmanabhan', style: nu(16, FontWeight.w800, C.brown)),
+              const SizedBox(height: 2),
+              Text('Creator & Lead Developer',
+                  style: nu(13, FontWeight.w700, C.muted).copyWith(fontStyle: FontStyle.italic)),
+            ]),
+          ),
+          const SizedBox(height: 16),
+          Divider(height: 1, color: C.line),
+          const SizedBox(height: 16),
+          Text('Get in Touch & Support', style: nu(16, FontWeight.w800, C.brown)),
+          const SizedBox(height: 6),
+          Text(
+            'Have feedback, bug reports, or feature requests? We would love to hear from you as we continue building a warmer corner of the internet for book lovers everywhere.',
+            style: nu(13.5, FontWeight.w600, C.body, 1.4),
+          ),
+          const SizedBox(height: 16),
           Wrap(alignment: WrapAlignment.center, spacing: 8, runSpacing: 8, children: [
             Pill('🌐 Website', size: 13, onTap: () => launchUrl(Uri.parse(siteUrl), mode: LaunchMode.externalApplication)),
             Pill('⬇️ Latest version', size: 13, onTap: () => launchUrl(Uri.parse('$repoUrl/releases/latest'), mode: LaunchMode.externalApplication)),
           ]),
+        ]),
+      );
+
+  Widget _aboutFeature(String title, String body) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            margin: const EdgeInsets.only(top: 5, right: 8),
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: C.brown, shape: BoxShape.circle),
+          ),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: nu(13.5, FontWeight.w600, C.body, 1.4),
+                children: [
+                  TextSpan(text: '$title: ', style: nu(13.5, FontWeight.w800, C.ink)),
+                  TextSpan(text: body),
+                ],
+              ),
+            ),
+          ),
         ]),
       );
 }
@@ -691,4 +845,76 @@ class _FontTile extends StatelessWidget {
           ),
         ),
       );
+}
+
+class _ShelfStyleTile extends StatelessWidget {
+  final String kind;
+  final String label;
+  final bool on;
+  final VoidCallback onTap;
+  const _ShelfStyleTile({required this.kind, required this.label, required this.on, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Pressable(
+      onTap: onTap,
+      scale: .94,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+        decoration: BoxDecoration(
+          color: on ? C.brown.withValues(alpha: .12) : C.field,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: on ? C.brown : C.line, width: on ? 2 : 1),
+        ),
+        child: Column(children: [
+          Container(
+            width: double.infinity,
+            height: 28,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(6),
+              gradient: switch (kind) {
+                'wood' => const LinearGradient(colors: [Color(0xFFD49B62), Color(0xFFA8713B), Color(0xFF6E431F)]),
+                'iron' => const LinearGradient(colors: [Color(0xFF7E8691), Color(0xFF454B52), Color(0xFF22262A)]),
+                'plastic' => const LinearGradient(colors: [Color(0xFFF48AA0), Color(0xFFE56A88)]),
+                _ => const LinearGradient(colors: [Color(0xFFB5D4E8), Color(0xFF8BBCE0)]),
+              },
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(label, style: nu(13, FontWeight.w800, on ? C.brown : C.ink)),
+        ]),
+      ),
+    );
+  }
+}
+
+class _PetChoiceTile extends StatelessWidget {
+  final String kind;
+  final String label;
+  final String emoji;
+  final bool on;
+  final VoidCallback onTap;
+  const _PetChoiceTile({required this.kind, required this.label, required this.emoji, required this.on, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Pressable(
+      onTap: onTap,
+      scale: .94,
+      child: Container(
+        width: 96,
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        decoration: BoxDecoration(
+          color: on ? C.brown.withValues(alpha: .14) : C.field,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: on ? C.brown : C.line, width: on ? 2 : 1),
+        ),
+        child: Column(children: [
+          Text(emoji, style: const TextStyle(fontSize: 28)),
+          const SizedBox(height: 6),
+          Text(label, textAlign: TextAlign.center, style: nu(13, FontWeight.w800, on ? C.brown : C.ink)),
+        ]),
+      ),
+    );
+  }
 }

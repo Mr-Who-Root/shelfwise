@@ -5,6 +5,7 @@ import '../icons.dart';
 import '../services/sfx.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import '../widgets/pet_overlay.dart';
 import 'library_screen.dart';
 import 'onboarding.dart';
 import 'profile_screen.dart';
@@ -75,6 +76,9 @@ class _ShellState extends State<Shell> {
               ),
               child: _page(),
             ),
+          ),
+          Positioned.fill(
+            child: PetOverlay(tab: _tab),
           ),
           Positioned(left: 0, right: 0, top: 0, height: MediaQuery.paddingOf(context).top, child: ColoredBox(color: C.bg.withValues(alpha: .95))),
           Positioned(left: 0, right: 0, bottom: 0, child: _NavBar(tab: _tab, onTab: go)),

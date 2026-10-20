@@ -507,55 +507,214 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   void _addDecor(Collection c, bool sub) {
     final n = store.rowCount(c, sub);
-    if (n >= shelfMax) {
-      toast('This shelf is full (10 spots)');
-      return;
-    }
+    final isFull = n >= shelfMax;
     final free = shelfMax - n;
-    openDialog((ctx) => AppDialog(
-          title: 'Add a decoration',
-          maxWidth: 380,
-          children: [
-            Sub('${plural(free, 'free spot')} on this ${sub ? 'sub shelf' : 'shelf'}. Adding a book to a full shelf replaces the last decoration.'),
-            ConstrainedBox(
-              constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * .46),
-              child: GridView.count(
+    final hasAnyLights = store.cols.any((col) => col.mainLights != null || col.subLights != null);
+    final curLights = c.lights(sub: sub);
+
+    openDialog((ctx) => StatefulBuilder(
+          builder: (ctx, set) => AppDialog(
+            title: 'Decorate this ${sub ? 'sub shelf' : 'shelf'}',
+            maxWidth: 400,
+            children: [
+              Sub(isFull
+                  ? 'The 10 object spots are full, but you can still add stickers and lights.'
+                  : '${plural(free, 'free spot')} for objects. Adding a book to a full shelf replaces the last object.'),
+              const SizedBox(height: 8),
+
+              // --- Hanging lights ---
+              Row(children: [
+                Text('Hanging lights', style: nu(13, FontWeight.w800, C.chipText)),
+                if (curLights != null) ...[
+                  const SizedBox(width: 8),
+                  Text('(${curLights == 'multi' ? 'Multicolor' : 'Warm white'})', style: nu(12, FontWeight.w700, C.brown)),
+                ],
+              ]),
+              const SizedBox(height: 8),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                Pressable(
+                  onTap: () {
+                    store.setLights(c, 'warm', sub: sub);
+                    Sfx.play('pop');
+                    toast('Warm white lights hung on ${c.name}${sub ? ' · sub shelf' : ''}');
+                    set(() {});
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: curLights == 'warm' ? C.brown.withValues(alpha: .18) : C.field,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: curLights == 'warm' ? C.brown : C.inputLine, width: curLights == 'warm' ? 2 : 1),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Text('💡', style: TextStyle(fontSize: 16)),
+                      const SizedBox(width: 6),
+                      Text('Warm white', style: nu(12.5, FontWeight.w800, curLights == 'warm' ? C.brown : C.ink)),
+                    ]),
+                  ),
+                ),
+                Pressable(
+                  onTap: () {
+                    store.setLights(c, 'multi', sub: sub);
+                    Sfx.play('pop');
+                    toast('Multicolor lights hung on ${c.name}${sub ? ' · sub shelf' : ''}');
+                    set(() {});
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: curLights == 'multi' ? C.brown.withValues(alpha: .18) : C.field,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: curLights == 'multi' ? C.brown : C.inputLine, width: curLights == 'multi' ? 2 : 1),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Text('🌈', style: TextStyle(fontSize: 16)),
+                      const SizedBox(width: 6),
+                      Text('Multicolor', style: nu(12.5, FontWeight.w800, curLights == 'multi' ? C.brown : C.ink)),
+                    ]),
+                  ),
+                ),
+                if (curLights != null)
+                  Pressable(
+                    onTap: () {
+                      store.setLights(c, null, sub: sub);
+                      Sfx.play('swoosh');
+                      toast('Lights removed from this shelf');
+                      set(() {});
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: C.field,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: C.inputLine),
+                      ),
+                      child: Text('Remove here', style: nu(12, FontWeight.w700, C.muted)),
+                    ),
+                  ),
+                if (hasAnyLights)
+                  Pressable(
+                    onTap: () {
+                      store.setLights(c, null, sub: sub, all: true);
+                      Sfx.play('swoosh');
+                      toast('Lights removed from all shelves');
+                      set(() {});
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: C.field,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: C.inputLine),
+                      ),
+                      child: Text('Remove all', style: nu(12, FontWeight.w700, C.dangerInk)),
+                    ),
+                  ),
+              ]),
+              const SizedBox(height: 16),
+
+              // --- Objects ---
+              Row(children: [
+                Text('Objects', style: nu(13, FontWeight.w800, C.chipText)),
+                const SizedBox(width: 8),
+                Text(isFull ? '(full)' : '($free spots left)', style: nu(12, FontWeight.w600, C.muted)),
+              ]),
+              const SizedBox(height: 8),
+              ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * .32),
+                child: GridView.count(
+                  crossAxisCount: 4,
+                  shrinkWrap: true,
+                  padding: EdgeInsets.zero,
+                  mainAxisSpacing: 8,
+                  crossAxisSpacing: 8,
+                  childAspectRatio: .78,
+                  children: [
+                    for (final g in gadgets.values)
+                      Semantics(
+                        button: true,
+                        label: g.name,
+                        child: Pressable(
+                          onTap: () {
+                            if (isFull) {
+                              toast('This shelf is full (10 spots)');
+                              return;
+                            }
+                            Navigator.pop(ctx);
+                            if (store.addDecor(c, g.key, sub: sub)) {
+                              Sfx.play('pop');
+                              toast('${g.name} added to ${c.name}${sub ? ' · sub shelf' : ''}');
+                            }
+                          },
+                          child: Opacity(
+                            opacity: isFull ? .45 : 1.0,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                  color: C.field, borderRadius: BorderRadius.circular(12), border: Border.all(color: C.inputLine)),
+                              padding: const EdgeInsets.fromLTRB(2, 6, 2, 5),
+                              child: Column(children: [
+                                Expanded(child: SvgPicture.string(g.svg, fit: BoxFit.contain)),
+                                const SizedBox(height: 4),
+                                Text(g.name, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis, style: nu(10, FontWeight.w700)),
+                              ]),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // --- Stickers ---
+              Row(children: [
+                Text('Stickers', style: nu(13, FontWeight.w800, C.chipText)),
+                const SizedBox(width: 8),
+                Text('${c.stickersFor(sub: sub).length}/12', style: nu(12, FontWeight.w600, C.muted)),
+              ]),
+              const SizedBox(height: 8),
+              GridView.count(
                 crossAxisCount: 4,
                 shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
                 padding: EdgeInsets.zero,
                 mainAxisSpacing: 8,
                 crossAxisSpacing: 8,
-                childAspectRatio: .78,
+                childAspectRatio: .88,
                 children: [
-                  for (final g in gadgets.values)
+                  for (final st in shelfStickers.values)
                     Semantics(
                       button: true,
-                      label: g.name,
+                      label: '${st.name} sticker',
                       child: Pressable(
                         onTap: () {
+                          if (c.stickersFor(sub: sub).length >= 12) {
+                            toast('That shelf already has 12 stickers');
+                            return;
+                          }
                           Navigator.pop(ctx);
-                          if (store.addDecor(c, g.key, sub: sub)) {
+                          if (store.addSticker(c, st.key, sub: sub)) {
                             Sfx.play('pop');
-                            toast('${g.name} added to ${c.name}${sub ? ' · sub shelf' : ''}');
+                            toast('${st.name} sticker added. Tap it on your shelf to tear or remove');
                           }
                         },
                         child: Container(
                           decoration: BoxDecoration(
                               color: C.field, borderRadius: BorderRadius.circular(12), border: Border.all(color: C.inputLine)),
-                          padding: const EdgeInsets.fromLTRB(2, 6, 2, 5),
-                          child: Column(children: [
-                            Expanded(child: SvgPicture.string(g.svg, fit: BoxFit.contain)),
+                          padding: const EdgeInsets.all(6),
+                          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                            SizedBox(width: 38, height: 38, child: SvgPicture.string(st.svg)),
                             const SizedBox(height: 4),
-                            Text(g.name, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis, style: nu(10, FontWeight.w700)),
+                            Text(st.name, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis, style: nu(10, FontWeight.w700)),
                           ]),
                         ),
                       ),
                     ),
                 ],
               ),
-            ),
-          ],
-          actions: const [Btn('Cancel')],
+            ],
+            actions: const [Btn('Close')],
+          ),
         ));
   }
 

@@ -3,13 +3,16 @@ import 'dart:math';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
+import '../art.dart';
 import '../data/models.dart';
 import '../data/store.dart';
 import '../services/sfx.dart';
 import '../theme.dart';
 import 'book_cover.dart';
 import 'common.dart';
+import 'pet_overlay.dart';
 
 class _Slot {
   final Item it;
@@ -72,7 +75,10 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
     _sc.addListener(() {
       if (mounted) setState(() {});
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) => _checkOverflow());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkOverflow();
+      _reportBounds();
+    });
   }
 
   @override
@@ -82,15 +88,32 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
     for (final it in widget.items) {
       if (!before.contains(it.id)) _fresh.add(it.id);
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) => _checkOverflow());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkOverflow();
+      _reportBounds();
+    });
   }
 
   @override
   void dispose() {
+    if (widget.home) {
+      final key = '${widget.col.id}-${widget.sub ? "sub" : "main"}';
+      ShelfBoundsRegistry.homeShelves.remove(key);
+    }
     _auto.dispose();
     _shine.dispose();
     _sc.dispose();
     super.dispose();
+  }
+
+  void _reportBounds() {
+    if (!mounted || !widget.home) return;
+    final ro = context.findRenderObject() as RenderBox?;
+    if (ro != null && ro.hasSize) {
+      final pos = ro.localToGlobal(Offset.zero);
+      final key = '${widget.col.id}-${widget.sub ? "sub" : "main"}';
+      ShelfBoundsRegistry.homeShelves[key] = Rect.fromLTWH(pos.dx, pos.dy, ro.size.width, ro.size.height);
+    }
   }
 
   void _checkOverflow() {
@@ -238,19 +261,32 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
 
   Widget _row(List<Color> p) {
     final (slots, total) = _layout();
-    final glassH = max(64.0, _h * .45);
+    final style = store.settings.shelfStyle;
+    final glassH = switch (style) {
+      'wood' => 54.0,
+      'iron' => 54.0,
+      'plastic' => 50.0,
+      _ => max(64.0, _h * .45),
+    };
     final raised = _drag?.id ?? _pressed;
+    final lightsKind = widget.col.lights(sub: widget.sub);
+    final stickers = widget.col.stickersFor(sub: widget.sub);
+
     return LayoutBuilder(builder: (context, cons) {
       final vw = cons.maxWidth;
-      final rowH = _h + 34;
+      final rowH = _h + (lightsKind != null ? 44 : 34);
       final normal = <Widget>[], top = <Widget>[];
       for (final (i, s) in slots.indexed) {
         (s.it.id == raised ? top : normal).add(_item(s, i, slots));
       }
+      final totalWidth = max(total, vw);
       return Stack(clipBehavior: Clip.none, children: [
         NotificationListener<ScrollMetricsNotification>(
           onNotification: (_) {
-            WidgetsBinding.instance.addPostFrameCallback((_) => _checkOverflow());
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _checkOverflow();
+              _reportBounds();
+            });
             return false;
           },
           child: SingleChildScrollView(
@@ -260,18 +296,40 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
             physics: _drag != null ? const NeverScrollableScrollPhysics() : const BouncingScrollPhysics(),
             child: SizedBox(
               key: _stackKey,
-              width: max(total, vw),
+              width: totalWidth,
               height: rowH,
               child: Stack(clipBehavior: Clip.none, children: [
+                if (lightsKind != null)
+                  Positioned(
+                    left: 0,
+                    width: totalWidth,
+                    top: 0,
+                    height: 38,
+                    child: IgnorePointer(child: _HangingLights(kind: lightsKind)),
+                  ),
                 ...normal,
-                // the glass band sits over the books' lower half but stays put while scrolling
+                // the shelf surface band sits over the books' lower half but stays put while scrolling
                 Positioned(
                   left: _sc.hasClients ? _sc.offset : 0,
                   width: vw,
                   bottom: 0,
                   height: glassH,
-                  child: IgnorePointer(child: _Glass(p)),
+                  child: IgnorePointer(child: _ShelfBand(p, style: style)),
                 ),
+                for (final s in stickers)
+                  Positioned(
+                    left: (s.x / 100 * totalWidth).clamp(10.0, totalWidth - 50.0),
+                    bottom: (s.y / 100 * glassH).clamp(4.0, glassH - 24.0),
+                    child: _ShelfStickerView(
+                      sticker: s,
+                      home: widget.home,
+                      onRemove: (tear) {
+                        store.removeSticker(widget.col, s.id);
+                        Sfx.play(tear ? 'tear' : 'pop');
+                        toast(tear ? 'Sticker torn off' : 'Sticker removed');
+                      },
+                    ),
+                  ),
                 ...top,
               ]),
             ),
@@ -516,16 +574,328 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
   }
 }
 
-class _Glass extends StatelessWidget {
+class _ShelfBand extends StatelessWidget {
   final List<Color> p;
-  const _Glass(this.p);
+  final String style;
+  const _ShelfBand(this.p, {this.style = 'glass'});
+
   @override
-  Widget build(BuildContext context) => DecoratedBox(
+  Widget build(BuildContext context) {
+    return switch (style) {
+      'wood' => _buildWood(),
+      'iron' => _buildIron(),
+      'plastic' => _buildPlastic(),
+      _ => _buildGlass(),
+    };
+  }
+
+  Widget _buildGlass() => DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
           gradient: LinearGradient(colors: [p[0], p[1], p[2]], stops: const [0, .55, 1]),
+          border: Border.all(color: Colors.white.withValues(alpha: .5), width: 1),
+          boxShadow: const [
+            BoxShadow(color: Color.fromRGBO(60, 30, 10, .25), offset: Offset(0, 6), blurRadius: 10, spreadRadius: -4),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: CustomPaint(painter: _GlassSheenPainter()),
         ),
       );
+
+  Widget _buildWood() => DecoratedBox(
+        decoration: const BoxDecoration(
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(6),
+            topRight: Radius.circular(6),
+            bottomLeft: Radius.circular(14),
+            bottomRight: Radius.circular(14),
+          ),
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFD49B62), Color(0xFFA8713B), Color(0xFF6E431F)],
+          ),
+          border: Border(
+            top: BorderSide(color: Color(0x99FFE1B4), width: 2),
+            bottom: BorderSide(color: Color(0x59321905), width: 3),
+          ),
+          boxShadow: [
+            BoxShadow(color: Color.fromRGBO(40, 20, 5, .45), offset: Offset(0, 8), blurRadius: 12, spreadRadius: -4),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(6),
+            topRight: Radius.circular(6),
+            bottomLeft: Radius.circular(14),
+            bottomRight: Radius.circular(14),
+          ),
+          child: CustomPaint(painter: _WoodGrainPainter()),
+        ),
+      );
+
+  Widget _buildIron() => DecoratedBox(
+        decoration: const BoxDecoration(
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(4),
+            topRight: Radius.circular(4),
+            bottomLeft: Radius.circular(10),
+            bottomRight: Radius.circular(10),
+          ),
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF7E8691), Color(0xFF454B52), Color(0xFF33383E), Color(0xFF22262A)],
+            stops: [0, .2, .6, 1],
+          ),
+          border: Border(
+            top: BorderSide(color: Color(0x66FFFFFF), width: 2),
+            bottom: BorderSide(color: Color(0x80000000), width: 2),
+          ),
+          boxShadow: [
+            BoxShadow(color: Color.fromRGBO(0, 0, 0, .5), offset: Offset(0, 8), blurRadius: 12, spreadRadius: -4),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(4),
+            topRight: Radius.circular(4),
+            bottomLeft: Radius.circular(10),
+            bottomRight: Radius.circular(10),
+          ),
+          child: CustomPaint(painter: _IronRivetPainter()),
+        ),
+      );
+
+  Widget _buildPlastic() => DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          color: p.length > 3 ? p[3] : const Color(0xFFF48AA0),
+          border: const Border(
+            top: BorderSide(color: Color(0xB3FFFFFF), width: 2),
+            bottom: BorderSide(color: Color(0x2E000000), width: 3),
+          ),
+          boxShadow: const [
+            BoxShadow(color: Color.fromRGBO(40, 20, 5, .35), offset: Offset(0, 8), blurRadius: 10, spreadRadius: -4),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0x99FFFFFF), Color(0x00FFFFFF), Color(0x2E000000)],
+                stops: [0, .46, 1],
+              ),
+            ),
+          ),
+        ),
+      );
+}
+
+class _GlassSheenPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment(-1, -0.6),
+        end: Alignment(1, 0.6),
+        colors: [
+          Colors.transparent,
+          Color(0x44FFFFFF),
+          Colors.transparent,
+          Colors.transparent,
+          Color(0x22FFFFFF),
+          Colors.transparent,
+        ],
+        stops: [0.18, 0.26, 0.34, 0.60, 0.66, 0.72],
+      ).createShader(Offset.zero & size);
+    canvas.drawRect(Offset.zero & size, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _WoodGrainPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final grainPaint = Paint()
+      ..color = const Color(0x1F46260C)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2;
+    for (double x = 24; x < size.width; x += 38) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), grainPaint);
+    }
+    final lightGrain = Paint()
+      ..color = const Color(0x12FFEBC8)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0;
+    for (double y = 4; y < size.height; y += 8) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), lightGrain);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _IronRivetPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rivetOuter = Paint()..color = const Color(0xFF2B2F34);
+    final rivetCenter = Paint()..color = const Color(0xFFAAB1BA);
+    final cy = size.height * 0.5;
+    for (double x = 20; x < size.width; x += 44) {
+      canvas.drawCircle(Offset(x, cy), 3.2, rivetOuter);
+      canvas.drawCircle(Offset(x, cy), 1.8, rivetCenter);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _HangingLights extends StatelessWidget {
+  final String kind;
+  const _HangingLights({required this.kind});
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: _LightsPainter(kind: kind),
+    );
+  }
+}
+
+class _LightsPainter extends CustomPainter {
+  final String kind;
+  _LightsPainter({required this.kind});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final wirePaint = Paint()
+      ..color = const Color(0xFF4A3A2A)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4
+      ..strokeCap = StrokeCap.round;
+
+    final multiColors = const [
+      Color(0xFFFF6B6B),
+      Color(0xFFFFD98A),
+      Color(0xFF6BCF8F),
+      Color(0xFF6BB5FF),
+      Color(0xFFC58BFF),
+    ];
+
+    const swagWidth = 105.0;
+    final swags = (size.width / swagWidth).ceil();
+    var colorIdx = 0;
+
+    for (int i = 0; i < swags; i++) {
+      final x1 = i * swagWidth;
+      final x2 = min((i + 1) * swagWidth, size.width);
+      final midX = (x1 + x2) / 2;
+      const dropY = 16.0;
+
+      final wire = Path()
+        ..moveTo(x1, 4)
+        ..quadraticBezierTo(midX, dropY + 4, x2, 4);
+      canvas.drawPath(wire, wirePaint);
+
+      for (double t = 0.18; t <= 0.82; t += 0.22) {
+        final bx = (1 - t) * (1 - t) * x1 + 2 * (1 - t) * t * midX + t * t * x2;
+        final by = (1 - t) * (1 - t) * 4 + 2 * (1 - t) * t * (dropY + 4) + t * t * 4;
+
+        final bulbColor = kind == 'multi' ? multiColors[colorIdx % multiColors.length] : const Color(0xFFFFD98A);
+        colorIdx++;
+
+        canvas.drawCircle(
+          Offset(bx, by + 3),
+          6.0,
+          Paint()
+            ..color = bulbColor.withValues(alpha: .5)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+        );
+        canvas.drawOval(
+          Rect.fromCenter(center: Offset(bx, by + 3), width: 5.5, height: 8),
+          Paint()..color = bulbColor,
+        );
+        canvas.drawRect(
+          Rect.fromCenter(center: Offset(bx, by - 1), width: 3.5, height: 3),
+          Paint()..color = const Color(0xFF4A3A2A),
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _LightsPainter old) => old.kind != kind;
+}
+
+class _ShelfStickerView extends StatelessWidget {
+  final ShelfSticker sticker;
+  final bool home;
+  final void Function(bool tear) onRemove;
+
+  const _ShelfStickerView({
+    required this.sticker,
+    required this.home,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final def = shelfStickers[sticker.kind] ?? shelfStickers['star']!;
+    return Transform.rotate(
+      angle: sticker.r * pi / 180,
+      child: GestureDetector(
+        onTap: home
+            ? null
+            : () {
+                Buzz.tick();
+                Sfx.play('tap');
+                openDialog((ctx) => AppDialog(
+                      title: '${def.name} sticker',
+                      children: [
+                        Center(
+                          child: SizedBox(
+                            width: 64,
+                            height: 64,
+                            child: SvgPicture.string(def.svg),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Tap Tear off to tear this sticker away from your shelf, or Remove to take it off cleanly.',
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                      actions: [
+                        const Btn('Cancel'),
+                        Btn('Tear off', kind: Kind.pri, onTap: () {
+                          onRemove(true);
+                          return true;
+                        }),
+                        Btn('Remove', kind: Kind.dng, onTap: () {
+                          onRemove(false);
+                          return true;
+                        }),
+                      ],
+                    ));
+              },
+        child: SizedBox(
+          width: 44,
+          height: 44,
+          child: SvgPicture.string(def.svg),
+        ),
+      ),
+    );
+  }
 }
 
 class _Shadowed extends StatelessWidget {

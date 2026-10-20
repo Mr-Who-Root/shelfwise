@@ -11,6 +11,7 @@ import '../theme.dart';
 import '../widgets/common.dart';
 import '../widgets/dialogs.dart';
 import '../widgets/fx.dart';
+import '../widgets/pet_overlay.dart';
 import 'bell.dart';
 
 class TodoUi {
@@ -229,6 +230,33 @@ class TodoTile extends StatefulWidget {
 class _TodoTileState extends State<TodoTile> {
   late final bool _fresh = TodoUi.seen.add(widget.t.id);
   final _checkKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _reportBounds());
+  }
+
+  @override
+  void didUpdateWidget(TodoTile old) {
+    super.didUpdateWidget(old);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _reportBounds());
+  }
+
+  @override
+  void dispose() {
+    TodoBoundsRegistry.items.remove(widget.t.id);
+    super.dispose();
+  }
+
+  void _reportBounds() {
+    if (!mounted) return;
+    final ro = context.findRenderObject() as RenderBox?;
+    if (ro != null && ro.hasSize) {
+      final pos = ro.localToGlobal(Offset.zero);
+      TodoBoundsRegistry.items[widget.t.id] = Rect.fromLTWH(pos.dx, pos.dy, ro.size.width, ro.size.height);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -132,6 +132,42 @@ class Item {
   Item copy() => Item.fromJson(toJson());
 }
 
+class ShelfSticker {
+  String id;
+  String kind; // star, heart, smile, moon, flower, bolt, leaf, book
+  double x; // 0..100 percentage along shelf width
+  double y; // 0..100 percentage
+  double r; // rotation in degrees
+  bool sub;
+
+  ShelfSticker({
+    String? id,
+    required this.kind,
+    required this.x,
+    required this.y,
+    this.r = 0,
+    this.sub = false,
+  }) : id = id ?? newId();
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'k': kind,
+        'x': x,
+        'y': y,
+        'r': r,
+        if (sub) 'sub': true,
+      };
+
+  factory ShelfSticker.fromJson(Map<String, dynamic> j) => ShelfSticker(
+        id: j['id'] as String?,
+        kind: (j['k'] ?? 'star') as String,
+        x: (j['x'] as num?)?.toDouble() ?? 50.0,
+        y: (j['y'] as num?)?.toDouble() ?? 50.0,
+        r: (j['r'] as num?)?.toDouble() ?? 0.0,
+        sub: j['sub'] == true,
+      );
+}
+
 class Collection {
   String id;
   String name;
@@ -139,12 +175,37 @@ class Collection {
   List<Item> items;
   bool subOn;
   bool subOpen;
+  String? mainLights; // null, 'warm', 'multi'
+  String? subLights;
+  List<ShelfSticker> stickers;
 
-  Collection({String? id, required this.name, this.emoji = '📚', List<Item>? items, this.subOn = false, this.subOpen = false})
-      : id = id ?? newId(),
-        items = items ?? [];
+  Collection({
+    String? id,
+    required this.name,
+    this.emoji = '📚',
+    List<Item>? items,
+    this.subOn = false,
+    this.subOpen = false,
+    this.mainLights,
+    this.subLights,
+    List<ShelfSticker>? stickers,
+  })  : id = id ?? newId(),
+        items = items ?? [],
+        stickers = stickers ?? [];
 
   Iterable<Item> get books => items.where((i) => !i.isDecor);
+
+  String? lights({bool sub = false}) => sub ? subLights : mainLights;
+  void setLights(String? k, {bool sub = false}) {
+    if (sub) {
+      subLights = k;
+    } else {
+      mainLights = k;
+    }
+  }
+
+  List<ShelfSticker> stickersFor({bool sub = false}) =>
+      stickers.where((s) => s.sub == sub).toList();
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -153,15 +214,26 @@ class Collection {
         'items': items.map((e) => e.toJson()).toList(),
         if (subOn) 'subOn': true,
         if (subOpen) 'subOpen': true,
+        if (mainLights != null) 'mainLights': mainLights,
+        if (subLights != null) 'subLights': subLights,
+        if (stickers.isNotEmpty)
+          'stickers': stickers.map((e) => e.toJson()).toList(),
       };
 
   factory Collection.fromJson(Map<String, dynamic> j) => Collection(
         id: j['id'] as String?,
         name: (j['name'] ?? 'Shelf') as String,
         emoji: (j['emoji'] ?? '📚') as String,
-        items: ((j['items'] ?? const []) as List).map((e) => Item.fromJson((e as Map).cast<String, dynamic>())).toList(),
+        items: ((j['items'] ?? const []) as List)
+            .map((e) => Item.fromJson((e as Map).cast<String, dynamic>()))
+            .toList(),
         subOn: j['subOn'] == true,
         subOpen: j['subOpen'] == true,
+        mainLights: j['mainLights'] as String?,
+        subLights: j['subLights'] as String?,
+        stickers: ((j['stickers'] ?? const []) as List)
+            .map((e) => ShelfSticker.fromJson((e as Map).cast<String, dynamic>()))
+            .toList(),
       );
 }
 
@@ -290,6 +362,8 @@ class Settings {
   bool backupFiles;
   double epubSize;
   String skipVersion;
+  String shelfStyle; // glass, wood, iron, plastic
+  String pet; // none, cat, dog, rabbit, bird
 
   Settings({
     this.reminders = false,
@@ -306,6 +380,8 @@ class Settings {
     this.backupFiles = false,
     this.epubSize = 18,
     this.skipVersion = '',
+    this.shelfStyle = 'glass',
+    this.pet = 'none',
   });
 
   Map<String, dynamic> toJson() => {
@@ -323,6 +399,8 @@ class Settings {
         'backupFiles': backupFiles,
         'epubSize': epubSize,
         if (skipVersion.isNotEmpty) 'skipVersion': skipVersion,
+        'shelfStyle': shelfStyle,
+        'pet': pet,
       };
   factory Settings.fromJson(Map<String, dynamic> j) => Settings(
         reminders: j['reminders'] == true,
@@ -339,5 +417,7 @@ class Settings {
         backupFiles: j['backupFiles'] == true,
         epubSize: (j['epubSize'] as num?)?.toDouble() ?? 18,
         skipVersion: (j['skipVersion'] ?? '') as String,
+        shelfStyle: (j['shelfStyle'] ?? 'glass') as String,
+        pet: (j['pet'] ?? 'none') as String,
       );
 }

@@ -255,6 +255,34 @@ class AppStore extends ChangeNotifier {
     return true;
   }
 
+  void setLights(Collection c, String? kind, {required bool sub, bool all = false}) {
+    if (all) {
+      for (final col in cols) {
+        col.setLights(kind, sub: false);
+        col.setLights(kind, sub: true);
+      }
+    } else {
+      c.setLights(kind, sub: sub);
+    }
+    changed();
+  }
+
+  bool addSticker(Collection c, String kind, {required bool sub}) {
+    if (c.stickersFor(sub: sub).length >= 12) return false;
+    final rnd = Random();
+    final x = 18.0 + rnd.nextDouble() * 60.0;
+    final y = 65.0 + rnd.nextDouble() * 18.0;
+    final r = (rnd.nextDouble() * 30.0 - 15.0);
+    c.stickers.add(ShelfSticker(kind: kind, x: x, y: y, r: r, sub: sub));
+    changed();
+    return true;
+  }
+
+  void removeSticker(Collection c, String stickerId) {
+    c.stickers.removeWhere((s) => s.id == stickerId);
+    changed();
+  }
+
   Collection? colOf(Item it) {
     for (final c in cols) {
       if (c.items.contains(it)) return c;
