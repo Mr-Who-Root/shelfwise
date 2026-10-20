@@ -10,6 +10,7 @@ import '../services/notify.dart';
 import '../services/sfx.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import '../widgets/dialogs.dart';
 
 Route<void> introRoute() => PageRouteBuilder(
       transitionDuration: const Duration(milliseconds: 450),
@@ -334,42 +335,101 @@ class _GoogleStep extends StatefulWidget {
 
 class _GoogleStepState extends State<_GoogleStep> with TickerProviderStateMixin {
   late final AnimationController _bob = AnimationController(vsync: this, duration: const Duration(milliseconds: 2600))..repeat();
-  late final AnimationController _shake = AnimationController(vsync: this, duration: const Duration(milliseconds: 420));
-  String _err = '';
 
   @override
   void dispose() {
     _bob.dispose();
-    _shake.dispose();
     super.dispose();
   }
 
   void _go() {
     final em = widget.email.text.trim();
     if (em.isEmpty) {
-      setState(() => _err = 'Enter your Google email to continue');
-      _shake.forward(from: 0);
-      Buzz.medium();
-      return;
+      _openGoogleDialog();
+    } else {
+      widget.onGo();
     }
-    final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
-    if (!emailRegex.hasMatch(em)) {
-      setState(() => _err = 'Please enter a valid email (e.g. name@gmail.com)');
-      _shake.forward(from: 0);
-      Buzz.medium();
-      return;
-    }
-    FocusScope.of(context).unfocus();
-    widget.onGo();
   }
 
-  void _appendGmail() {
-    final current = widget.email.text.trim();
-    if (!current.contains('@')) {
-      widget.email.text = '$current@gmail.com';
-      widget.email.selection = TextSelection.fromPosition(TextPosition(offset: widget.email.text.length));
-      setState(() => _err = '');
-    }
+  Future<void> _openGoogleDialog() async {
+    final controller = TextEditingController(text: widget.email.text);
+    var err = '';
+    await openDialog<void>((ctx) => StatefulBuilder(
+      builder: (ctx, setDlgState) {
+        void submit() {
+          final em = controller.text.trim();
+          if (em.isEmpty) {
+            setDlgState(() => err = 'Please enter your Google email');
+            Buzz.medium();
+            return;
+          }
+          final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+          if (!emailRegex.hasMatch(em)) {
+            setDlgState(() => err = 'Enter a valid email (e.g. name@gmail.com)');
+            Buzz.medium();
+            return;
+          }
+          widget.email.text = em;
+          setState(() {});
+          Navigator.of(ctx).pop();
+          widget.onGo();
+        }
+
+        void appendGmail() {
+          final cur = controller.text.trim();
+          if (!cur.contains('@') && cur.isNotEmpty) {
+            controller.text = '$cur@gmail.com';
+            controller.selection = TextSelection.fromPosition(TextPosition(offset: controller.text.length));
+            setDlgState(() => err = '');
+          }
+        }
+
+        return AppDialog(
+          title: 'Sign in with Google',
+          children: [
+            const Sub('Enter your Google email address to personalize your reading shelves.'),
+            const SizedBox(height: 4),
+            AppInput(
+              controller,
+              'you@gmail.com',
+              type: TextInputType.emailAddress,
+              caps: TextCapitalization.none,
+              autofocus: true,
+              maxLength: 80,
+              onChanged: (_) => setDlgState(() => err = ''),
+              onSubmitted: (_) => submit(),
+            ),
+            if (!controller.text.contains('@') && controller.text.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4, bottom: 2),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: GestureDetector(
+                    onTap: appendGmail,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEDE7DF),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Text('+ @gmail.com', style: TextStyle(fontFamily: F.sans, fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF6A5A4A))),
+                    ),
+                  ),
+                ),
+              ),
+            ErrText(err),
+          ],
+          actions: [
+            const Btn('Cancel'),
+            Btn('Continue', kind: Kind.pri, onTap: () {
+              submit();
+              return false;
+            }),
+          ],
+        );
+      },
+    ));
+    controller.dispose();
   }
 
   @override
@@ -437,88 +497,50 @@ class _GoogleStepState extends State<_GoogleStep> with TickerProviderStateMixin 
         child: const Padding(
           padding: EdgeInsets.fromLTRB(36, 14, 36, 0),
           child: Text(
-            'Continue with your Google email ID to personalize your cozy bookshelves and reading to-dos.',
+            'Continue with your Google account to personalize your cozy bookshelves and reading to-dos.',
             textAlign: TextAlign.center,
             style: TextStyle(fontFamily: F.sans, fontSize: 15, height: 1.45, color: Color(0xFF5D5D5D)),
           ),
         ),
       ),
-      const SizedBox(height: 22),
-      FadeIn(
-        delay: 320,
-        child: AnimatedBuilder(
-          animation: _shake,
-          builder: (_, c) => Transform.translate(offset: Offset(sin(_shake.value * pi * 6) * 10 * (1 - _shake.value), 0), child: c),
+      const SizedBox(height: 24),
+      if (rawEmail.isNotEmpty)
+        FadeIn(
+          delay: 280,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 26),
             child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: C.black, width: 1.6),
+                border: Border.all(color: C.black.withValues(alpha: .14), width: 1.4),
                 boxShadow: const [
-                  BoxShadow(color: Color.fromRGBO(0, 0, 0, .06), offset: Offset(0, 3), blurRadius: 10),
+                  BoxShadow(color: Color.fromRGBO(0, 0, 0, .04), offset: Offset(0, 2), blurRadius: 8),
                 ],
               ),
-              padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
               child: Row(children: [
                 SvgPicture.string(googleLogoSvg, width: 24, height: 24),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: TextField(
-                    controller: widget.email,
-                    autofocus: !widget.replay,
-                    keyboardType: TextInputType.emailAddress,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    textInputAction: TextInputAction.done,
-                    onChanged: (_) => setState(() => _err = ''),
-                    onSubmitted: (_) => _go(),
-                    style: const TextStyle(fontFamily: F.sans, fontWeight: FontWeight.w600, fontSize: 16, color: C.black),
-                    decoration: const InputDecoration(
-                      border: InputBorder.none,
-                      hintText: 'Enter your Google email',
-                      hintStyle: TextStyle(fontFamily: F.sans, fontWeight: FontWeight.w400, fontSize: 15, color: Color(0xFF9E9E9E)),
-                      contentPadding: EdgeInsets.symmetric(vertical: 12),
-                      isDense: true,
-                    ),
-                  ),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(name, style: const TextStyle(fontFamily: F.sans, fontWeight: FontWeight.w700, fontSize: 15, color: C.black)),
+                    Text(rawEmail, style: const TextStyle(fontFamily: F.sans, fontSize: 13, color: Color(0xFF6B6B6B))),
+                  ]),
+                ),
+                TextButton(
+                  onPressed: _openGoogleDialog,
+                  style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                  child: const Text('Change', style: TextStyle(fontFamily: F.sans, fontWeight: FontWeight.w600, fontSize: 13, color: C.orange)),
                 ),
               ]),
             ),
           ),
         ),
-      ),
-      if (!widget.email.text.contains('@') && widget.email.text.isNotEmpty)
-        Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Center(
-            child: GestureDetector(
-              onTap: _appendGmail,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEDE7DF),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Text('+ @gmail.com', style: TextStyle(fontFamily: F.sans, fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF6A5A4A))),
-              ),
-            ),
-          ),
-        ),
-      SizedBox(
-        height: 26,
-        child: Center(
-          child: AnimatedOpacity(
-            duration: const Duration(milliseconds: 200),
-            opacity: _err.isEmpty ? 0 : 1,
-            child: Text(_err, style: TextStyle(fontFamily: F.sans, fontSize: 13, fontWeight: FontWeight.w500, color: C.error)),
-          ),
-        ),
-      ),
+      if (rawEmail.isNotEmpty) const SizedBox(height: 8),
       if (!widget.replay)
         FadeIn(
-          delay: 420,
+          delay: 360,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(26, 2, 26, 8),
             child: GestureDetector(
@@ -549,11 +571,11 @@ class _GoogleStepState extends State<_GoogleStep> with TickerProviderStateMixin 
             ),
           ),
         ),
-      const SizedBox(height: 14),
+      const SizedBox(height: 18),
       FadeIn(
-        delay: 500,
+        delay: 440,
         child: _Cta(
-          'Continue with Google',
+          rawEmail.isNotEmpty ? 'Continue as $first' : 'Continue with Google',
           leading: SvgPicture.string(googleLogoSvg, width: 22, height: 22),
           onTap: _go,
         ),
