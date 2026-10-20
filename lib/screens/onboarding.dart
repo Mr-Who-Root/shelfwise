@@ -392,7 +392,7 @@ Future<String?> openGoogleAccountChooser(BuildContext context, {String? currentE
                             color: Color(0x18000000),
                           ),
                           alignment: Alignment.center,
-                          child: const Icon(Icons.person_add_alt_1_outlined, size: 20, color: C.ink),
+                          child: Icon(Icons.person_add_alt_1_outlined, size: 20, color: C.ink),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -404,7 +404,7 @@ Future<String?> openGoogleAccountChooser(BuildContext context, {String? currentE
                             ],
                           ),
                         ),
-                        const Icon(Icons.chevron_right_rounded, size: 20, color: C.muted),
+                        Icon(Icons.chevron_right_rounded, size: 20, color: C.muted),
                       ],
                     ),
                   ),
