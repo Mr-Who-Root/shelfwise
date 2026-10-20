@@ -331,6 +331,8 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       toast('Bookmark removed');
       Sfx.play('tap');
     } else if (m == null) {
+      // Keep strictly one bookmark per book (removing any previous bookmark, keeping notes)
+      b.marks.removeWhere((mark) => mark.note.isEmpty);
       b.marks.add(Mark(page: _page, pos: _ep?.offsetOfPage(_page) ?? -1));
       toast('Bookmarked page ${_page + 1}');
       Sfx.play('pop');

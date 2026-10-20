@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../art.dart';
 import '../data/models.dart';
@@ -202,6 +203,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  void _shareApp(BuildContext context) {
+    Buzz.tick();
+    Sfx.play('swoosh');
+    final box = context.findRenderObject() as RenderBox?;
+    final first = store.profile.first.isNotEmpty ? store.profile.first : 'Reader';
+    final bookCount = store.totalBooks;
+    final text = '✨ Check out my bookshelves on Shelfwise! I have $bookCount ${plural(bookCount, 'book')} organized on my cozy shelves. Download Shelfwise: https://mr-who-root.github.io/shelfwise/';
+    SharePlus.instance.share(ShareParams(
+      subject: '$first’s Bookshelf on Shelfwise',
+      text: text,
+      sharePositionOrigin: box == null ? null : box.localToGlobal(Offset.zero) & box.size,
+    ));
+  }
+
   Widget _header(int total) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 22),
@@ -216,6 +231,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ),
         const SizedBox(width: 8),
         Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+          if (home) ...[
+            Builder(
+              builder: (ctx) => BadgeButton(
+                icon: Ic.share,
+                count: 0,
+                label: 'Share',
+                onTap: () => _shareApp(ctx),
+              ),
+            ),
+            const SizedBox(width: 10),
+          ],
           const BellButton(),
           const SizedBox(width: 10),
           BadgeButton(icon: Ic.gift, count: store.unclaimed.length, label: 'Rewards', onTap: () => openRewards()),
@@ -273,10 +299,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Item? _lastRead() {
-    final r = store.allBooks.where((b) => b.readAt != null && store.copyExists(b)).toList()
+    // Only reading books appear in continue reading, finished books are excluded
+    final r = store.allBooks
+        .where((b) => b.readAt != null && store.copyExists(b) && !b.finished)
+        .toList()
       ..sort((a, b) => b.readAt!.compareTo(a.readAt!));
     return r.isEmpty ? null : r.first;
   }
+
 
   Widget _search() => Padding(
         padding: const EdgeInsets.fromLTRB(22, 14, 22, 0),

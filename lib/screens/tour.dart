@@ -22,7 +22,85 @@ class _Step {
   final List<String> tips;
   final Color panel;
   final Widget Function() art;
-  const _Step(this.title, this.body, this.tips, this.panel, this.art);
+  final String pointerLabel;
+  final bool pointsUp;
+  const _Step(
+    this.title,
+    this.body,
+    this.tips,
+    this.panel,
+    this.art, {
+    required this.pointerLabel,
+    this.pointsUp = false,
+  });
+}
+
+class _AnimatedArrowPointer extends StatefulWidget {
+  final String label;
+  final bool pointsUp;
+  const _AnimatedArrowPointer({required this.label, this.pointsUp = false});
+  @override
+  State<_AnimatedArrowPointer> createState() => _AnimatedArrowPointerState();
+}
+
+class _AnimatedArrowPointerState extends State<_AnimatedArrowPointer> with SingleTickerProviderStateMixin {
+  late final AnimationController _ac = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _ac.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ac,
+      builder: (_, child) {
+        final dy = (widget.pointsUp ? -1.0 : 1.0) * (_ac.value * 7);
+        return Transform.translate(
+          offset: Offset(0, dy),
+          child: child,
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: C.orange,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: C.orange.withValues(alpha: .38),
+              blurRadius: 10,
+              offset: Offset(0, widget.pointsUp ? -2 : 3),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              widget.pointsUp ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
+              color: Colors.white,
+              size: 18,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              widget.label,
+              style: const TextStyle(
+                fontFamily: F.sans,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: Colors.white,
+                letterSpacing: .2,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// A swipeable tour of everything Shelfwise can do, shown once after the intro.
@@ -38,18 +116,51 @@ class _TourState extends State<Tour> {
   int _i = 0;
 
   late final List<_Step> _steps = [
-    _Step('Cozy shelves', 'Your books stand on shelves just like at home. Tap one to open it, or press and hold to drag it to a new spot. A full shelf grows a sub shelf.',
-        ['📷 Scan a barcode to add', 'Long-press to reorder', '🪴 Decorations you can play with'], const Color(0xFFF5ECDF), () => const _ShelfArt()),
-    _Step('Read your own copy', 'Attach a PDF or EPUB to a book. Drag a corner and the page curls over like paper. Pinch or double-tap to zoom, bookmark pages, jot notes, and pick up where you stopped.',
-        ['📎 PDF or EPUB', '🔖 Bookmarks & notes', '⏱️ Reading time'], const Color(0xFF1D4A37), () => const _ReadArt()),
-    _Step('Reading to-dos', 'Plan the reading life: “finish chapter 12 tonight”, “return Rebecca”. Add due times, stars, hashtags and a linked book. Ticking them off unlocks rewards.',
-        ['⏰ Reminders', '⭐ Star the important ones', '🎁 Rewards for milestones'], const Color(0xFFF6B300), () => const _TodoArt()),
-    _Step('Stats & Rewind', 'Set a yearly goal and watch your month, year or all-time reading fill up. Play your Rewind, a story-style recap, then share it or save it as an image.',
-        ['🎯 Yearly goal', '🎞️ Rewind story', '⭐ Star ratings'], const Color(0xFF1C1C1C), () => const _StatsArt()),
-    _Step('Make it yours', 'Light, dark or follow your phone. Pick an accent colour, a font you love and a comfortable text size in Settings.',
-        ['🌙 Dark mode', '🎨 Five accents', 'Aa Three fonts'], const Color(0xFFB6D8D5), () => const _ThemeArt()),
-    _Step('Private by design', 'No account, no ads, everything stays on this phone. Use Settings → Share backup to keep a copy safe, and Import backup on a new phone.',
-        ['🔒 Stays on your phone', '📤 Share backup', '📥 Import backup'], const Color(0xFFFF4F0F), () => const _BackupArt()),
+    _Step(
+      'Share & Notifications',
+      'At the top right of your sanctuary, tap the Share icon near the notification bell to share your cozy bookshelves with friends. Tap the bell to see due to-dos, alerts, and reading rewards.',
+      ['📤 Share icon near bell', '🔔 Due notifications', '🎁 Reading rewards'],
+      const Color(0xFF1D4A37),
+      () => const _ShareHeaderArt(),
+      pointerLabel: 'Section 1: Top Bar & Share',
+      pointsUp: true,
+    ),
+    _Step(
+      'Cozy Shelves & One Bookmark',
+      'Your books sit on wooden shelves just like at home. Open any book to read with page-curl animations. Each book keeps exactly one bookmark so you never lose your place. Once a book is finished, it clears from "Continue Reading" automatically.',
+      ['🔖 1 bookmark per book', '✅ Finished clears continue reading', '📖 PDF & EPUB reader'],
+      const Color(0xFFF5ECDF),
+      () => const _ShelfArt(),
+      pointerLabel: 'Section 2: Bookshelves & Bookmarks',
+      pointsUp: false,
+    ),
+    _Step(
+      'Shelf Styles, Stickers & Pets',
+      'Personalize your sanctuary! Choose from 4 rich wood styles (Oak, Walnut, Pine, Rosewood), place movable stickers anywhere across your shelves, and play with cute pets that jump across platforms with sound effects.',
+      ['🪵 4 wood finishes', '🪴 Movable stickers', '🐾 Playful pets with sounds'],
+      const Color(0xFFB6D8D5),
+      () => const _ShelvesAndPetsArt(),
+      pointerLabel: 'Section 3: Styles, Stickers & Pets',
+      pointsUp: false,
+    ),
+    _Step(
+      'Double-Tap Navigation',
+      'The bottom navigation features a single, sleek button. On the first page only the Home button is shown. Double-tap the "Home" button to switch directly to your full "Library". Double-tap "Library" to return Home.',
+      ['✨ Single sleek button', '👆👆 Double-tap to toggle', '📚 Home ⇄ Library'],
+      const Color(0xFF1C1C1C),
+      () => const _DoubleTapNavArt(),
+      pointerLabel: 'Section 4: Navigation Toggle',
+      pointsUp: false,
+    ),
+    _Step(
+      'Reading To-Dos & Smart Alerts',
+      'Plan your reading schedule with to-dos. If a to-do is due today or starting soon, you get mobile notifications and a 1-hour start popup with OK and Skip buttons. Completing tasks unlocks milestone badges.',
+      ['⏰ 1-hour start popups', '⭐ Star & prioritize', '🏆 Milestone badges'],
+      const Color(0xFFF6B300),
+      () => const _TodoArt(),
+      pointerLabel: 'Section 5: Reading To-Dos & Alerts',
+      pointsUp: false,
+    ),
   ];
 
   @override
@@ -84,20 +195,36 @@ class _TourState extends State<Tour> {
         padding: EdgeInsets.only(top: mq.padding.top, bottom: mq.padding.bottom),
         child: Column(children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(22, 10, 10, 0),
+            padding: const EdgeInsets.fromLTRB(22, 10, 16, 4),
             child: Row(children: [
               const SizedBox(width: 2),
               SvgPicture.string(owlSvg, width: 34, height: 31),
-              const SizedBox(width: 8),
-              Text('What you can do', style: nu(14, FontWeight.w800, C.muted)),
+              const SizedBox(width: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Shelfwise Walkthrough', style: nu(15, FontWeight.w800, C.ink)),
+                  Text('Section ${_i + 1} of ${_steps.length}', style: nu(12, FontWeight.w600, C.muted)),
+                ],
+              ),
               const Spacer(),
-              AnimatedOpacity(
-                opacity: last ? 0 : 1,
-                duration: const Duration(milliseconds: 200),
-                child: TextButton(
-                  onPressed: last ? null : _finish,
-                  style: TextButton.styleFrom(foregroundColor: C.brown),
-                  child: Text('Skip', style: nu(15, FontWeight.w800, C.brown)),
+              Pressable(
+                onTap: _finish,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: C.brown.withValues(alpha: .12),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: C.brown.withValues(alpha: .28), width: 1.2),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Skip', style: nu(14, FontWeight.w800, C.brown)),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.fast_forward_rounded, size: 16, color: C.brown),
+                    ],
+                  ),
                 ),
               ),
             ]),
@@ -164,10 +291,16 @@ class _TourState extends State<Tour> {
   Widget _page(_Step s, double off) {
     final fade = (1 - off.abs()).clamp(0.0, 1.0);
     return LayoutBuilder(builder: (context, c) {
-      final artH = min(c.maxHeight * .56, 380.0);
+      final artH = min(c.maxHeight * .52, 360.0);
       return SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(22, 10, 22, 10),
+        padding: const EdgeInsets.fromLTRB(22, 6, 22, 10),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Center(
+            child: _AnimatedArrowPointer(
+              label: s.pointerLabel,
+              pointsUp: s.pointsUp,
+            ),
+          ),
           Transform.translate(
             offset: Offset(off * -60, 0),
             child: Transform.scale(
@@ -181,15 +314,15 @@ class _TourState extends State<Tour> {
               ),
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
           Opacity(
             opacity: fade,
             child: Transform.translate(
               offset: Offset(off * 40, 0),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(s.title, style: TextStyle(fontFamily: F.serif, fontWeight: FontWeight.w800, fontSize: 30, color: C.ink, height: 1.1)),
-                const SizedBox(height: 10),
-                Text(s.body, style: nu(15.5, FontWeight.w600, C.body, 1.45)),
+                Text(s.title, style: TextStyle(fontFamily: F.serif, fontWeight: FontWeight.w800, fontSize: 28, color: C.ink, height: 1.1)),
+                const SizedBox(height: 8),
+                Text(s.body, style: nu(15, FontWeight.w600, C.body, 1.45)),
                 const SizedBox(height: 14),
                 Wrap(spacing: 8, runSpacing: 8, children: [
                   for (final t in s.tips)
@@ -235,6 +368,96 @@ class _LoopState extends State<_Loop> with SingleTickerProviderStateMixin {
 
 double _seg(double t, double a, double b, [Curve c = Curves.easeInOut]) => c.transform(((t - a) / (b - a)).clamp(0.0, 1.0));
 
+class _ShareHeaderArt extends _Loop {
+  const _ShareHeaderArt() : super(3000);
+  @override
+  Widget draw(BuildContext context, double t) {
+    final pop = _seg(t, .2, .45, Curves.easeOutBack);
+    final flash = (sin(t * pi * 4) * .5 + .5);
+    return LayoutBuilder(builder: (_, c) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF235540),
+                borderRadius: BorderRadius.circular(18),
+                boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 10, offset: Offset(0, 4))],
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Rajkumar’s Sanctuary', style: nu(15, FontWeight.w800, Colors.white)),
+                        Text('12 books on cozy shelves', style: nu(12, FontWeight.w600, const Color(0xFFB0D5C5))),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: C.orange,
+                      borderRadius: BorderRadius.circular(10),
+                      boxShadow: [
+                        BoxShadow(color: C.orange.withValues(alpha: .4 * flash), blurRadius: 8, spreadRadius: 2),
+                      ],
+                    ),
+                    child: SvgPicture.string(Ic.share, width: 17, height: 17, colorFilter: const ColorFilter.mode(Colors.white, BlendMode.srcIn)),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2E6B52),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: SvgPicture.string(Ic.bell, width: 17, height: 17, colorFilter: const ColorFilter.mode(Colors.white, BlendMode.srcIn)),
+                  ),
+                ],
+              ),
+            ),
+            const Spacer(),
+            Transform.scale(
+              scale: pop,
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: const [BoxShadow(color: Color(0x40000000), blurRadius: 12, offset: Offset(0, 6))],
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.share_rounded, size: 20, color: C.orange),
+                        const SizedBox(width: 8),
+                        Text('Share your bookshelf!', style: nu(14, FontWeight.w800, C.ink)),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Tap the Share icon near the bell to invite friends to see your reading sanctuary & books.',
+                      textAlign: TextAlign.center,
+                      style: nu(12.5, FontWeight.w600, C.muted, 1.3),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const Spacer(),
+          ],
+        ),
+      );
+    });
+  }
+}
+
 class _ShelfArt extends _Loop {
   const _ShelfArt() : super(3200);
   static final _books = [
@@ -274,12 +497,18 @@ class _ShelfArt extends _Loop {
         ),
         _book(_books[2], left + 2 * w * .72, base - h, w, h, lift),
         Positioned(
-          left: 30,
-          top: base - 32,
+          left: left + 2 * w * .72 + w * .5 - 8,
+          top: base - h - 16 * lift - 12,
+          child: Opacity(opacity: lift, child: const Text('🔖', style: TextStyle(fontSize: 18))),
+        ),
+        Positioned(
+          left: 20,
+          right: 20,
+          top: base - 34,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(color: const Color(0xD9FFF8EC), borderRadius: BorderRadius.circular(10)),
-            child: Text('📖 Reading now · 5/10', style: nu(11, FontWeight.w800, lightPal.ink)),
+            child: Text('🔖 1 Bookmark per book · Finished clears continue reading', textAlign: TextAlign.center, style: nu(10.5, FontWeight.w800, lightPal.ink)),
           ),
         ),
         Positioned(
@@ -309,6 +538,187 @@ class _ShelfArt extends _Loop {
           ),
         ),
       );
+}
+
+class _ShelvesAndPetsArt extends _Loop {
+  const _ShelvesAndPetsArt() : super(2800);
+  @override
+  Widget draw(BuildContext context, double t) {
+    final petX = (sin(t * pi * 2) * .5 + .5);
+    final petJump = (sin(t * pi * 4).abs() * 20);
+    return LayoutBuilder(builder: (_, c) {
+      final base = c.maxHeight * .68;
+      return Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            left: 20,
+            right: 20,
+            top: 14,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                for (final (i, name) in ['Oak', 'Walnut', 'Pine', 'Rosewood'].indexed)
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 24,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(6),
+                          gradient: LinearGradient(
+                            colors: [shelfPalettes[i % shelfPalettes.length][0], shelfPalettes[i % shelfPalettes.length][1]],
+                          ),
+                          border: Border.all(color: Colors.white.withValues(alpha: .6), width: 1.5),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(name, style: nu(10.5, FontWeight.w800, const Color(0xFF1E3A36))),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+          Positioned(
+            left: 20,
+            right: 20,
+            top: base,
+            height: 48,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(14),
+                gradient: LinearGradient(colors: [shelfPalettes[1][0], shelfPalettes[1][1], shelfPalettes[1][2]]),
+                boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 8, offset: Offset(0, 6))],
+              ),
+            ),
+          ),
+          Positioned(
+            left: 36,
+            top: base - 44,
+            child: const Text('🪴', style: TextStyle(fontSize: 34)),
+          ),
+          Positioned(
+            right: 40,
+            top: base - 56,
+            child: Row(
+              children: [
+                Container(width: 14, height: 56, decoration: BoxDecoration(color: const Color(0xFF9E472A), borderRadius: BorderRadius.circular(3))),
+                const SizedBox(width: 4),
+                Container(width: 16, height: 62, decoration: BoxDecoration(color: const Color(0xFF2F5233), borderRadius: BorderRadius.circular(3))),
+                const SizedBox(width: 4),
+                Container(width: 13, height: 50, decoration: BoxDecoration(color: const Color(0xFFD4A373), borderRadius: BorderRadius.circular(3))),
+              ],
+            ),
+          ),
+          Positioned(
+            left: 90 + petX * 70,
+            top: base - 38 - petJump,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('🎵', style: TextStyle(fontSize: 12 + petJump * .2)),
+                    const SizedBox(width: 4),
+                    const Text('🐾', style: TextStyle(fontSize: 10)),
+                  ],
+                ),
+                Text(petX > .5 ? '🐱' : '🐶', style: const TextStyle(fontSize: 34)),
+              ],
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 12,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: .85),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text('🐾 Adopt pets · Move stickers · Pick shelf woods', style: nu(11.5, FontWeight.w800, const Color(0xFF1E3A36))),
+              ),
+            ),
+          ),
+        ],
+      );
+    });
+  }
+}
+
+class _DoubleTapNavArt extends _Loop {
+  const _DoubleTapNavArt() : super(3200);
+  @override
+  Widget draw(BuildContext context, double t) {
+    final isLibrary = t > .5;
+    final tapPop = (sin(t * pi * 4).abs() * .2);
+    return LayoutBuilder(builder: (_, c) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0x33FFFFFF),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Text(
+                '👆👆 Double-tap to toggle',
+                style: nu(14, FontWeight.w800, Colors.white),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Transform.scale(
+              scale: 1.0 + tapPop,
+              child: Container(
+                width: 170,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: isLibrary ? const Color(0xFF1D4A37) : const Color(0xFFFF5200),
+                  borderRadius: BorderRadius.circular(28),
+                  boxShadow: [
+                    BoxShadow(
+                      color: (isLibrary ? const Color(0xFF1D4A37) : const Color(0xFFFF5200)).withValues(alpha: .5),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(isLibrary ? '📚' : '🏠', style: const TextStyle(fontSize: 22)),
+                    const SizedBox(width: 8),
+                    Text(
+                      isLibrary ? 'Library' : 'Home',
+                      style: const TextStyle(fontFamily: F.hand, fontSize: 24, fontWeight: FontWeight.w700, color: Colors.white),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 22),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0x22FFFFFF),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Text(
+                isLibrary ? 'Showing: Full Library Shelves' : 'Showing: Cozy Home Sanctuary',
+                style: nu(12.5, FontWeight.w600, const Color(0xFFDDD0BA)),
+              ),
+            ),
+          ],
+        ),
+      );
+    });
+  }
 }
 
 class _ReadArt extends _Loop {
@@ -444,6 +854,46 @@ class _TodoArt extends _Loop {
                 child: Container(width: 6, height: 8, color: const [Color(0xFFB8692A), Color(0xFF5FBF9A), Color(0xFFB58BE0), Color(0xFFF6B300)][i % 4]),
               ),
             ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: -6,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 8, offset: Offset(0, 3))],
+              ),
+              child: Row(
+                children: [
+                  const Text('⏰', style: TextStyle(fontSize: 16)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('Rebecca starts in 1 hr', style: nu(11, FontWeight.w800, C.ink)),
+                        Text('Pop-up alert reminder', style: nu(9.5, FontWeight.w600, C.muted)),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                    decoration: BoxDecoration(color: const Color(0xFFEFE8DD), borderRadius: BorderRadius.circular(6)),
+                    child: Text('OK', style: nu(10, FontWeight.w800, C.ink)),
+                  ),
+                  const SizedBox(width: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                    decoration: BoxDecoration(color: const Color(0xFFEFE8DD), borderRadius: BorderRadius.circular(6)),
+                    child: Text('Skip', style: nu(10, FontWeight.w800, C.muted)),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ]),
       );
     });

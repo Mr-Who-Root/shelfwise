@@ -321,6 +321,10 @@ class AppStore extends ChangeNotifier {
   void setStatus(Item b, String s) {
     b.status = s;
     b.finishedAt = s == 'f' ? (b.finishedAt ?? DateTime.now().millisecondsSinceEpoch) : null;
+    if (s == 'f') {
+      // Only reading books have bookmarks, finished books do not keep reading bookmarks
+      b.marks.removeWhere((m) => m.note.isEmpty);
+    }
     changed();
   }
 
