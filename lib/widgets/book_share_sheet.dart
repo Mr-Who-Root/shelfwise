@@ -1,7 +1,4 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../data/models.dart';
 import '../data/store.dart';
@@ -163,14 +160,12 @@ class _BookShareDialogState extends State<_BookShareDialog> with SingleTickerPro
     final code = _codeCtrl.text.trim();
     SharedTransferItem? item = transfer;
 
-    if (item == null && code.isNotEmpty) {
-      item = SharedTransferManager.findByCode(code);
+    if (code.isNotEmpty) {
+      item ??= SharedTransferManager.findByCode(code);
     }
-    if (item == null) {
-      item = SharedTransferManager.findByRecipient(store.profile.name);
-    }
-    if (item == null && SharedTransferManager.pending.isNotEmpty) {
-      item = SharedTransferManager.pending.last;
+    item ??= SharedTransferManager.findByRecipient(store.profile.name);
+    if (SharedTransferManager.pending.isNotEmpty) {
+      item ??= SharedTransferManager.pending.last;
     }
 
     // Fallback if testing without pending queue: create sample transfer from simulated peer

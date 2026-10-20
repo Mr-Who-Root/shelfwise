@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../art.dart';
 import '../data/models.dart';
@@ -269,10 +268,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
             }),
           ],
         ));
-  }
-
-  void _shareApp(BuildContext context) {
-    openBookShareSheet(context, initialTab: 0);
   }
 
   Widget _header(int total) {
