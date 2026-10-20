@@ -421,9 +421,9 @@ class _PetOverlayState extends State<PetOverlay> with TickerProviderStateMixin {
                       ),
                     AnimatedBuilder(
                       animation: _anim,
-                      builder: (_, _) => Transform(
+                      builder: (_, _) => Transform.scale(
+                        scaleX: _facing,
                         alignment: Alignment.bottomCenter,
-                        transform: Matrix4.identity()..scaleByDouble(_facing, 1.0, 1.0),
                         child: CustomPaint(
                           size: const Size(70, 56),
                           painter: _PetPainter(
