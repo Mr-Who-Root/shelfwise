@@ -63,7 +63,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   void _checkUpcomingTodoAlert() {
     if (!mounted || !home) return;
     final now = DateTime.now();
-    final todayEnd = store.endOfToday();
+    final todayEnd = AppStore.endOfToday();
     final todayStart = DateTime(now.year, now.month, now.day);
 
     final candidates = store.todos.where((t) {
