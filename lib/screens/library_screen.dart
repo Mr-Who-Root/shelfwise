@@ -63,7 +63,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   void _checkUpcomingTodoAlert() {
     if (!mounted || !home) return;
     final now = DateTime.now();
-    final todayEnd = endOfToday();
+    final todayEnd = store.endOfToday();
     final todayStart = DateTime(now.year, now.month, now.day);
 
     final candidates = store.todos.where((t) {
@@ -236,11 +236,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Widget _homeBar() {
-    final due = store.todos.where((t) => !t.done).toList()
-      ..sort((a, b) {
-        if (a.starred != b.starred) return a.starred ? -1 : 1;
-        return (a.due ?? 1 << 62).compareTo(b.due ?? 1 << 62);
-      });
     return Padding(
       padding: const EdgeInsets.fromLTRB(22, 16, 22, 0),
       child: Column(children: [
@@ -918,65 +913,6 @@ class _ContinueCard extends StatelessWidget {
   }
 }
 
-/// Compact "Up next" strip on Home.
-class _UpNext extends StatelessWidget {
-  final List<Todo> todos;
-  final VoidCallback onMore;
-  const _UpNext({required this.todos, required this.onMore});
-
-  @override
-  Widget build(BuildContext context) {
-    return CardBox(
-      pad: const EdgeInsets.fromLTRB(14, 12, 8, 6),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(children: [
-          Text('📌 Up next', style: nu(15, FontWeight.w800)),
-          const Spacer(),
-          Pressable(
-            onTap: onMore,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: Text('See all ›', style: nu(13, FontWeight.w800, C.brown)),
-            ),
-          ),
-        ]),
-        for (final t in todos)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Row(children: [
-              Semantics(
-                button: true,
-                label: 'Mark done',
-                child: Pressable(
-                  onTap: () {
-                    store.toggleTodo(t);
-                    Sfx.play('check');
-                    toast('Nice! Task done ✓');
-                  },
-                  scale: .8,
-                  child: Container(
-                    width: 26,
-                    height: 26,
-                    decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: C.brown, width: 2)),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(t.text, maxLines: 1, overflow: TextOverflow.ellipsis, style: nu(14, FontWeight.w700)),
-                  if (t.dueAt != null)
-                    Text(fmtDue(t.dueAt!),
-                        style: nu(12, FontWeight.w700, store.isOverdue(t) ? C.error : C.muted)),
-                ]),
-              ),
-              if (t.starred) const Padding(padding: EdgeInsets.only(right: 6), child: Text('⭐', style: TextStyle(fontSize: 14))),
-            ]),
-          ),
-      ]),
-    );
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Shared dialogs (also used by the profile and full-screen shelf)
