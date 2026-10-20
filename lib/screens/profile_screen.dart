@@ -70,6 +70,15 @@ class ProfileScreen extends StatelessWidget {
             const SizedBox(height: 8),
             Text(p.name.isEmpty ? 'Reader' : p.name, textAlign: TextAlign.center, style: nu(25, FontWeight.w800)),
             Text('@${p.handle}', textAlign: TextAlign.center, style: nu(14, FontWeight.w600, C.muted)),
+            if (p.email.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Icon(Icons.alternate_email_rounded, size: 13, color: C.muted),
+                  const SizedBox(width: 4),
+                  Text(p.email, textAlign: TextAlign.center, style: nu(13, FontWeight.w600, C.muted)),
+                ]),
+              ),
             if (p.bio.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),

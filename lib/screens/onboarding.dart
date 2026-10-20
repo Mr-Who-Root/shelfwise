@@ -17,7 +17,7 @@ Route<void> introRoute() => PageRouteBuilder(
       transitionsBuilder: (_, a, _, c) => FadeTransition(opacity: a, child: c),
     );
 
-/// Welcome → your name → notifications. Shown on first open (and from "Replay intro").
+/// Welcome → Google sign in → notifications. Shown on first open (and from "Replay intro").
 class Onboarding extends StatefulWidget {
   final bool replay;
   const Onboarding({super.key, this.replay = false});
@@ -27,7 +27,7 @@ class Onboarding extends StatefulWidget {
 
 class _OnboardingState extends State<Onboarding> {
   int _step = 0;
-  late final _name = TextEditingController(text: widget.replay ? store.profile.name : '');
+  late final _email = TextEditingController(text: widget.replay ? store.profile.email : '');
   bool _sample = false;
 
   @override
@@ -38,7 +38,7 @@ class _OnboardingState extends State<Onboarding> {
 
   @override
   void dispose() {
-    _name.dispose();
+    _email.dispose();
     Look.overlay();
     super.dispose();
   }
@@ -49,10 +49,12 @@ class _OnboardingState extends State<Onboarding> {
   }
 
   void _finish() {
-    final n = _name.text.trim();
+    final em = _email.text.trim();
     if (widget.replay) {
-      if (n.isNotEmpty && n != store.profile.name) {
+      if (em.isNotEmpty && em != store.profile.email) {
+        final n = AppStore.nameFromEmail(em);
         store.profile
+          ..email = em
           ..name = n
           ..handle = AppStore.handleFor(n);
         store.changed();
@@ -60,7 +62,7 @@ class _OnboardingState extends State<Onboarding> {
       Navigator.of(context).pop();
       return;
     }
-    store.setupFresh(name: n, sample: _sample);
+    store.setupFresh(sample: _sample, email: em);
     Sfx.play('reset');
   }
 
@@ -84,7 +86,7 @@ class _OnboardingState extends State<Onboarding> {
           ),
           child: switch (_step) {
             0 => _Welcome(key: const ValueKey(0), onGo: _next),
-            1 => _NameStep(key: const ValueKey(1), name: _name, replay: widget.replay, sample: _sample, onSample: (v) => setState(() => _sample = v), onGo: _next),
+            1 => _GoogleStep(key: const ValueKey(1), email: _email, replay: widget.replay, sample: _sample, onSample: (v) => setState(() => _sample = v), onGo: _next),
             _ => _NotifyStep(key: const ValueKey(2), onDone: _finish),
           },
         ),
@@ -112,12 +114,13 @@ class _Page extends StatelessWidget {
   }
 }
 
-/// The black call-to-action with an orange arrow.
+/// The black call-to-action with an orange arrow (and optional leading icon).
 class _Cta extends StatefulWidget {
   final String label;
   final Widget trailing;
+  final Widget? leading;
   final VoidCallback onTap;
-  const _Cta(this.label, {required this.onTap, this.trailing = const Text('⟶', style: TextStyle(fontFamily: F.hand, fontSize: 26, color: C.orange))});
+  const _Cta(this.label, {required this.onTap, this.leading, this.trailing = const Text('⟶', style: TextStyle(fontFamily: F.hand, fontSize: 26, color: C.orange))});
   @override
   State<_Cta> createState() => _CtaState();
 }
@@ -143,6 +146,10 @@ class _CtaState extends State<_Cta> {
             margin: const EdgeInsets.symmetric(horizontal: 26),
             decoration: BoxDecoration(color: _down ? const Color(0xFF2E2E2E) : C.black, borderRadius: BorderRadius.circular(6)),
             child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              if (widget.leading != null) ...[
+                widget.leading!,
+                const SizedBox(width: 12),
+              ],
               Flexible(
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 250),
@@ -308,17 +315,24 @@ class _Underline extends CustomPainter {
 
 // ---------------------------------------------------------------------------
 
-class _NameStep extends StatefulWidget {
-  final TextEditingController name;
+const googleLogoSvg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+  <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+  <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+  <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+</svg>''';
+
+class _GoogleStep extends StatefulWidget {
+  final TextEditingController email;
   final bool replay, sample;
   final ValueChanged<bool> onSample;
   final VoidCallback onGo;
-  const _NameStep({super.key, required this.name, required this.replay, required this.sample, required this.onSample, required this.onGo});
+  const _GoogleStep({super.key, required this.email, required this.replay, required this.sample, required this.onSample, required this.onGo});
   @override
-  State<_NameStep> createState() => _NameStepState();
+  State<_GoogleStep> createState() => _GoogleStepState();
 }
 
-class _NameStepState extends State<_NameStep> with TickerProviderStateMixin {
+class _GoogleStepState extends State<_GoogleStep> with TickerProviderStateMixin {
   late final AnimationController _bob = AnimationController(vsync: this, duration: const Duration(milliseconds: 2600))..repeat();
   late final AnimationController _shake = AnimationController(vsync: this, duration: const Duration(milliseconds: 420));
   String _err = '';
@@ -331,8 +345,16 @@ class _NameStepState extends State<_NameStep> with TickerProviderStateMixin {
   }
 
   void _go() {
-    if (widget.name.text.trim().isEmpty) {
-      setState(() => _err = 'Tell us your name first');
+    final em = widget.email.text.trim();
+    if (em.isEmpty) {
+      setState(() => _err = 'Enter your Google email to continue');
+      _shake.forward(from: 0);
+      Buzz.medium();
+      return;
+    }
+    final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+    if (!emailRegex.hasMatch(em)) {
+      setState(() => _err = 'Please enter a valid email (e.g. name@gmail.com)');
       _shake.forward(from: 0);
       Buzz.medium();
       return;
@@ -341,10 +363,22 @@ class _NameStepState extends State<_NameStep> with TickerProviderStateMixin {
     widget.onGo();
   }
 
+  void _appendGmail() {
+    final current = widget.email.text.trim();
+    if (!current.contains('@')) {
+      widget.email.text = '$current@gmail.com';
+      widget.email.selection = TextSelection.fromPosition(TextPosition(offset: widget.email.text.length));
+      setState(() => _err = '');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final still = MediaQuery.of(context).disableAnimations;
-    final first = widget.name.text.trim().split(RegExp(r'\s+')).first;
+    final rawEmail = widget.email.text.trim();
+    final name = rawEmail.isNotEmpty ? AppStore.nameFromEmail(rawEmail) : '';
+    final first = name.isNotEmpty ? name.split(RegExp(r'\s+')).first : '';
+
     return _Page(children: [
       FadeIn(
         child: SizedBox(
@@ -374,8 +408,11 @@ class _NameStepState extends State<_NameStep> with TickerProviderStateMixin {
                     ),
                     child: AnimatedSwitcher(
                       duration: const Duration(milliseconds: 250),
-                      child: Text(first.isEmpty ? 'Hoo are you?' : 'Hi, $first!',
-                          key: ValueKey(first.isEmpty), style: const TextStyle(fontFamily: F.hand, fontWeight: FontWeight.w700, fontSize: 22, color: C.black)),
+                      child: Text(
+                        first.isEmpty ? 'Your shelf awaits!' : 'Hi, $first!',
+                        key: ValueKey(first.isEmpty ? 'empty' : first),
+                        style: const TextStyle(fontFamily: F.hand, fontWeight: FontWeight.w700, fontSize: 22, color: C.black),
+                      ),
                     ),
                   ),
                 ),
@@ -388,17 +425,22 @@ class _NameStepState extends State<_NameStep> with TickerProviderStateMixin {
         padding: const EdgeInsets.fromLTRB(26, 18, 26, 0),
         child: FadeIn(
           delay: 120,
-          child: Text(widget.replay ? 'Still you?' : 'What should we\ncall you?',
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontFamily: F.serif, fontWeight: FontWeight.w800, fontSize: 32, height: 1.1, letterSpacing: -.3, color: C.black)),
+          child: Text(
+            widget.replay ? 'Your Google Account' : 'Continue with\nGoogle',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontFamily: F.serif, fontWeight: FontWeight.w800, fontSize: 32, height: 1.1, letterSpacing: -.3, color: C.black),
+          ),
         ),
       ),
       FadeIn(
         delay: 220,
         child: const Padding(
-          padding: EdgeInsets.fromLTRB(40, 14, 40, 0),
-          child: Text('Your name stays on this phone. We’ll only use it to greet you.',
-              textAlign: TextAlign.center, style: TextStyle(fontFamily: F.sans, fontSize: 15, height: 1.45, color: Color(0xFF5D5D5D))),
+          padding: EdgeInsets.fromLTRB(36, 14, 36, 0),
+          child: Text(
+            'Continue with your Google email ID to personalize your cozy bookshelves and reading to-dos.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontFamily: F.sans, fontSize: 15, height: 1.45, color: Color(0xFF5D5D5D)),
+          ),
         ),
       ),
       const SizedBox(height: 22),
@@ -409,30 +451,61 @@ class _NameStepState extends State<_NameStep> with TickerProviderStateMixin {
           builder: (_, c) => Transform.translate(offset: Offset(sin(_shake.value * pi * 6) * 10 * (1 - _shake.value), 0), child: c),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 26),
-            child: TextField(
-              controller: widget.name,
-              autofocus: !widget.replay,
-              maxLength: 40,
-              textCapitalization: TextCapitalization.words,
-              textInputAction: TextInputAction.done,
-              onChanged: (_) => setState(() => _err = ''),
-              onSubmitted: (_) => _go(),
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontFamily: F.hand, fontWeight: FontWeight.w700, fontSize: 30, color: C.black),
-              decoration: InputDecoration(
-                counterText: '',
-                hintText: 'Your name',
-                hintStyle: const TextStyle(fontFamily: F.hand, fontWeight: FontWeight.w500, fontSize: 30, color: Color(0xFFB9AFA3)),
-                filled: true,
-                fillColor: Colors.white,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: C.black, width: 1.6)),
-                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: C.orange, width: 2.4)),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: C.black, width: 1.6),
+                boxShadow: const [
+                  BoxShadow(color: Color.fromRGBO(0, 0, 0, .06), offset: Offset(0, 3), blurRadius: 10),
+                ],
               ),
+              padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
+              child: Row(children: [
+                SvgPicture.string(googleLogoSvg, width: 24, height: 24),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: widget.email,
+                    autofocus: !widget.replay,
+                    keyboardType: TextInputType.emailAddress,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    textInputAction: TextInputAction.done,
+                    onChanged: (_) => setState(() => _err = ''),
+                    onSubmitted: (_) => _go(),
+                    style: const TextStyle(fontFamily: F.sans, fontWeight: FontWeight.w600, fontSize: 16, color: C.black),
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      hintText: 'Enter your Google email',
+                      hintStyle: TextStyle(fontFamily: F.sans, fontWeight: FontWeight.w400, fontSize: 15, color: Color(0xFF9E9E9E)),
+                      contentPadding: EdgeInsets.symmetric(vertical: 12),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+              ]),
             ),
           ),
         ),
       ),
+      if (!widget.email.text.contains('@') && widget.email.text.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Center(
+            child: GestureDetector(
+              onTap: _appendGmail,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEDE7DF),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Text('+ @gmail.com', style: TextStyle(fontFamily: F.sans, fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF6A5A4A))),
+              ),
+            ),
+          ),
+        ),
       SizedBox(
         height: 26,
         child: Center(
@@ -477,7 +550,14 @@ class _NameStepState extends State<_NameStep> with TickerProviderStateMixin {
           ),
         ),
       const SizedBox(height: 14),
-      FadeIn(delay: 500, child: _Cta('Continue', onTap: _go)),
+      FadeIn(
+        delay: 500,
+        child: _Cta(
+          'Continue with Google',
+          leading: SvgPicture.string(googleLogoSvg, width: 22, height: 22),
+          onTap: _go,
+        ),
+      ),
     ]);
   }
 }

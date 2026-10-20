@@ -528,8 +528,9 @@ class AppStore extends ChangeNotifier {
 
   // ---------- setup ----------
 
-  void setupFresh({required String name, required bool sample}) {
-    profile = Profile(name: name, handle: handleFor(name), bio: 'Reading one page at a time.');
+  void setupFresh({String name = '', required bool sample, String email = ''}) {
+    final finalName = name.trim().isNotEmpty ? name.trim() : (email.trim().isNotEmpty ? nameFromEmail(email) : 'Reader');
+    profile = Profile(name: finalName, handle: handleFor(finalName), email: email.trim(), bio: 'Reading one page at a time.');
     headings = [];
     claimed = {};
     if (sample) {
@@ -549,6 +550,17 @@ class AppStore extends ChangeNotifier {
     onboarded = true;
     toured = false;
     changed();
+  }
+
+  static String nameFromEmail(String email) {
+    final trimmed = email.trim();
+    if (trimmed.isEmpty) return 'Reader';
+    final userPart = trimmed.split('@').first;
+    final cleaned = userPart.replaceAll(RegExp(r'[^a-zA-Z0-9]+'), ' ').trim();
+    if (cleaned.isEmpty) return 'Reader';
+    final words = cleaned.split(RegExp(r'\s+')).where((w) => w.isNotEmpty);
+    final titleCased = words.map((w) => '${w[0].toUpperCase()}${w.length > 1 ? w.substring(1).toLowerCase() : ''}').join(' ');
+    return titleCased.isEmpty ? 'Reader' : titleCased;
   }
 
   static String handleFor(String name) {
