@@ -5,23 +5,25 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:pdfx/pdfx.dart';
 
 import '../data/models.dart';
 import '../data/store.dart';
+import '../reader/epub.dart';
+import '../reader/source.dart';
 import '../services/sfx.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import '../widgets/dialogs.dart';
 import '../widgets/fx.dart';
+import '../widgets/stars.dart';
 
 const _paper = Color(0xFFFFFDF7);
 const _wood = Color(0xFF2B1D10);
 
-/// Opens the attached PDF of [b] at the page it was left on.
+/// Opens the attached PDF or EPUB of [b] where it was left off.
 Future<void> openReader(Item b) async {
   if (!store.copyExists(b)) {
-    toast('This book’s PDF isn’t on this phone. Attach it again.');
+    toast('This book’s file isn’t on this phone. Attach it again.');
     return;
   }
   Sfx.play('page');
@@ -37,7 +39,7 @@ Future<void> openReader(Item b) async {
   ));
 }
 
-/// A paper-like PDF reader.
+/// A paper-like reader for PDFs and EPUBs.
 ///
 /// At normal size, drag a corner (or tap the sides) to curl the page over.
 /// Pinch or double-tap to zoom in place; while zoomed, one finger pans and
@@ -51,11 +53,14 @@ class ReaderScreen extends StatefulWidget {
 
 class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMixin {
   Item get b => widget.book;
-  PdfDocument? _doc;
+  PageSource? _src;
+  bool _ready = false;
   int _count = 0;
   late int _page = b.page;
   double _aspect = 1 / 1.414;
   String? _err;
+  double? _typeset; // EPUB pagination progress
+  Size _laidFor = Size.zero;
 
   final _cache = <int, ui.Image>{};
   final _loading = <int>{};
@@ -65,6 +70,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   double _renderW = 0;
   Rect _rect = Rect.zero;
   Size _view = Size.zero;
+  int _gen = 0; // bumps when an EPUB re-flows, so stale renders are dropped
 
   // curl (normal size)
   Offset? _t;
@@ -96,7 +102,25 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   bool _chrome = true, _hint = false;
   double? _slideValue;
 
+  // reading time
+  Timer? _clock;
+  DateTime _active = DateTime.now();
+  bool _foreground = true;
+  int _pendingSec = 0;
+  late final AppLifecycleListener _life = AppLifecycleListener(
+    onResume: () {
+      _foreground = true;
+      _active = DateTime.now();
+    },
+    onPause: () {
+      _foreground = false;
+      _flushTime();
+    },
+  );
+
   bool get _zoomed => _zs > 1.01;
+  bool get _epub => b.isEpub;
+  EpubSource? get _ep => _src is EpubSource ? _src as EpubSource : null;
 
   @override
   void initState() {
@@ -114,6 +138,11 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     });
     _slide.addListener(() => setState(() {}));
     _hint = b.readAt == null;
+    _life;
+    _clock = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (_foreground && _ready && DateTime.now().difference(_active) < const Duration(minutes: 3)) _pendingSec += 5;
+      if (_pendingSec >= 30) _flushTime();
+    });
     _open();
   }
 
@@ -121,70 +150,113 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   void dispose() {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _tapTimer?.cancel();
+    _clock?.cancel();
+    _flushTime();
+    _life.dispose();
     _anim.dispose();
     _zAnim.dispose();
     _slide.dispose();
     for (final i in [..._cache.values, ..._hi.values]) {
       i.dispose();
     }
-    _queue.whenComplete(() => _doc?.close());
+    final src = _src;
+    _queue.whenComplete(() => src?.close());
     _save();
     super.dispose();
   }
 
+  void _flushTime() {
+    if (_pendingSec <= 0) return;
+    store.addReading(b, _pendingSec);
+    _pendingSec = 0;
+    store.changed();
+  }
+
+  void _touch() => _active = DateTime.now();
+
   Future<void> _open() async {
     try {
-      final d = await PdfDocument.openFile(store.bookFile(b.file!).path);
-      final p = await d.getPage(min(d.pagesCount, max(1, b.page + 1)));
-      final aspect = p.width / p.height;
-      await p.close();
-      if (!mounted) {
-        await d.close();
-        return;
+      final path = store.bookFile(b.file!).path;
+      if (_epub) {
+        final s = EpubSource(path);
+        await s.open();
+        if (!mounted) return;
+        setState(() => _src = s); // pagination starts once the page size is known
+      } else {
+        final s = PdfSource(path);
+        await s.open();
+        final a = await s.measure(min(s.count - 1, max(0, b.page)));
+        if (!mounted) {
+          await s.close();
+          return;
+        }
+        setState(() {
+          _src = s;
+          _count = s.count;
+          _aspect = a.isFinite && a > 0 ? a : _aspect;
+          _page = _page.clamp(0, max(0, _count - 1));
+          _ready = true;
+        });
+        if (b.pages != _count) b.pages = _count;
+        _save();
       }
-      setState(() {
-        _doc = d;
-        _count = d.pagesCount;
-        _aspect = aspect.isFinite && aspect > 0 ? aspect : _aspect;
-        _page = _page.clamp(0, max(0, _count - 1));
-      });
-      if (b.pages != _count) b.pages = _count;
-      _save();
-      if (_hint) Future.delayed(const Duration(milliseconds: 4200), () => mounted ? setState(() => _hint = false) : null);
+      if (_hint) Future.delayed(const Duration(milliseconds: 4500), () => mounted ? setState(() => _hint = false) : null);
     } catch (e) {
-      setState(() => _err = 'This PDF couldn’t be opened.');
+      setState(() => _err = 'This book couldn’t be opened.');
     }
+  }
+
+  /// Typesets the EPUB for the current page size and text size, keeping the reading position.
+  Future<void> _paginate(Size size, {int? keepOffset}) async {
+    final ep = _ep;
+    if (ep == null || _typeset != null) return;
+    _laidFor = size;
+    setState(() => _typeset = 0);
+    final offset = keepOffset ?? (ep.count > 0 ? ep.offsetOfPage(_page) : b.pos);
+    await ep.paginate(size, store.settings.epubSize, onProgress: (p) {
+      if (mounted) setState(() => _typeset = p);
+    });
+    if (!mounted) return;
+    _gen++;
+    for (final i in [..._cache.values, ..._hi.values]) {
+      i.dispose();
+    }
+    _cache.clear();
+    _hi.clear();
+    setState(() {
+      _typeset = null;
+      _count = ep.count;
+      _page = keepOffset == null && b.page < _count && ep.offsetOfPage(b.page) == offset
+          ? b.page
+          : ep.pageOfOffset(offset).clamp(0, max(0, _count - 1));
+      _ready = true;
+    });
+    b.pages = _count;
+    _save();
   }
 
   void _save() {
     b
       ..page = _page
       ..readAt = DateTime.now().millisecondsSinceEpoch;
+    final ep = _ep;
+    if (ep != null && ep.count > 0) b.pos = ep.offsetOfPage(_page);
     store.changed();
   }
 
   // ---------------- rendering ----------------
 
-  Future<ui.Image?> _render(int i, double w) async {
-    final d = _doc;
-    if (d == null) return null;
-    final p = await d.getPage(i + 1);
-    final img = await p.render(width: w, height: w * p.height / p.width, format: PdfPageImageFormat.jpeg, backgroundColor: '#FFFFFF', quality: 92);
-    await p.close();
-    if (img == null) return null;
-    return (await (await ui.instantiateImageCodec(img.bytes)).getNextFrame()).image;
-  }
-
   void _want(int i) {
-    if (_doc == null || i < 0 || i >= _count || _cache.containsKey(i) || _loading.contains(i) || _renderW <= 0) return;
+    final src = _src;
+    if (!_ready || src == null || i < 0 || i >= _count || _cache.containsKey(i) || _loading.contains(i) || _renderW <= 0) return;
     _loading.add(i);
-    final w = _renderW;
+    final w = _renderW, gen = _gen;
     _queue = _queue.then((_) async {
       if (!mounted) return;
       try {
-        final img = await _render(i, w);
+        final img = await src.render(i, w);
         if (img == null) return;
-        if (!mounted) return img.dispose();
+        if (!mounted || gen != _gen) return img.dispose();
         setState(() => _cache[i] = img);
         _evict();
       } catch (_) {
@@ -196,15 +268,16 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
   /// A sharper copy of a page for reading zoomed in.
   void _wantHi(int i) {
-    if (_doc == null || i < 0 || i >= _count || _hi.containsKey(i) || _hiLoading.contains(i) || _renderW <= 0) return;
+    final src = _src;
+    if (!_ready || src == null || i < 0 || i >= _count || _hi.containsKey(i) || _hiLoading.contains(i) || _renderW <= 0) return;
     _hiLoading.add(i);
-    final w = min(_renderW * 2.2, 2000.0);
+    final w = min(_renderW * 2.2, 2000.0), gen = _gen;
     _queue = _queue.then((_) async {
       if (!mounted) return;
       try {
-        final img = await _render(i, w);
+        final img = await src.render(i, w);
         if (img == null) return;
-        if (!mounted) return img.dispose();
+        if (!mounted || gen != _gen) return img.dispose();
         setState(() => _hi[i] = img);
         for (final k in _hi.keys.where((k) => (k - _page).abs() > 1).toList()) {
           _hi.remove(k)?.dispose();
@@ -233,6 +306,179 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     }
   }
 
+  // ---------------- marks ----------------
+
+  /// The page a mark points at: its saved page while the layout still matches, else found by text position.
+  int _markPage(Mark m) {
+    final ep = _ep;
+    if (ep == null || m.pos < 0 || ep.count == 0) return m.page;
+    if (m.page < ep.count && ep.offsetOfPage(m.page) == m.pos) return m.page;
+    return ep.pageOfOffset(m.pos);
+  }
+
+  Mark? get _markHere {
+    for (final m in b.marks) {
+      if (_markPage(m) == _page) return m;
+    }
+    return null;
+  }
+
+  void _toggleBookmark() {
+    _touch();
+    final m = _markHere;
+    if (m != null && m.note.isEmpty) {
+      b.marks.remove(m);
+      toast('Bookmark removed');
+      Sfx.play('tap');
+    } else if (m == null) {
+      b.marks.add(Mark(page: _page, pos: _ep?.offsetOfPage(_page) ?? -1));
+      toast('Bookmarked page ${_page + 1}');
+      Sfx.play('pop');
+      Buzz.light();
+    } else {
+      toast('This page has a note. Open Notes to remove it.');
+      return;
+    }
+    store.changed();
+    setState(() {});
+  }
+
+  void _editNote() {
+    _touch();
+    final m = _markHere;
+    final t = TextEditingController(text: m?.note ?? '');
+    openDialog((ctx) => AppDialog(title: 'Note on page ${_page + 1}', children: [
+          AppInput(t, 'A thought, a quote, a question…', maxLength: 600, lines: 5, autofocus: true),
+        ], actions: [
+          if (m != null && m.note.isNotEmpty)
+            Btn('Delete', kind: Kind.dng, onTap: () {
+              b.marks.remove(m);
+              store.changed();
+              setState(() {});
+              toast('Note deleted');
+              return true;
+            }),
+          const Btn('Cancel'),
+          Btn('Save', kind: Kind.pri, onTap: () {
+            final v = t.text.trim();
+            if (v.isEmpty) return false;
+            if (m != null) {
+              m.note = v;
+            } else {
+              b.marks.add(Mark(page: _page, pos: _ep?.offsetOfPage(_page) ?? -1, note: v));
+            }
+            store.changed();
+            setState(() {});
+            Sfx.play('pop');
+            toast('Note saved on page ${_page + 1}');
+            return true;
+          }),
+        ]));
+  }
+
+  void _openMarks() {
+    _touch();
+    openDialog((ctx) => StatefulBuilder(builder: (ctx, set) {
+          final marks = [...b.marks]..sort((x, y) => _markPage(x).compareTo(_markPage(y)));
+          return AppDialog(title: 'Bookmarks & notes', maxWidth: 380, children: [
+            if (marks.isEmpty)
+              const Sub('Nothing yet. Tap 🔖 to bookmark a page, or ✎ to write a note on it.')
+            else
+              ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * .5),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  padding: EdgeInsets.zero,
+                  itemCount: marks.length,
+                  separatorBuilder: (_, _) => Divider(height: 1, color: C.line),
+                  itemBuilder: (_, i) {
+                    final m = marks[i];
+                    final pg = _markPage(m);
+                    return InkWell(
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _jump(pg);
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(m.note.isEmpty ? '🔖' : '📝', style: const TextStyle(fontSize: 18)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Text('Page ${pg + 1}', style: nu(14, FontWeight.w800)),
+                              if (m.note.isNotEmpty)
+                                Text(m.note, maxLines: 3, overflow: TextOverflow.ellipsis, style: nu(13, FontWeight.w600, C.body, 1.35)),
+                            ]),
+                          ),
+                          IconButton(
+                            tooltip: 'Remove',
+                            visualDensity: VisualDensity.compact,
+                            icon: Icon(Icons.close_rounded, size: 18, color: C.muted),
+                            onPressed: () {
+                              b.marks.remove(m);
+                              store.changed();
+                              set(() {});
+                              setState(() {});
+                            },
+                          ),
+                        ]),
+                      ),
+                    );
+                  },
+                ),
+              ),
+          ], actions: const [
+            Btn('Close'),
+          ]);
+        }));
+  }
+
+  void _jump(int target) {
+    if (target == _page) return;
+    Sfx.play('page');
+    if (_zoomed) _zo = _topOf(_zs, _zo);
+    _turned(target - _page);
+  }
+
+  void _textSize() {
+    _touch();
+    final sizes = [15.0, 16.5, 18.0, 20.0, 22.0, 25.0];
+    openDialog((ctx) => StatefulBuilder(builder: (ctx, set) {
+          final cur = store.settings.epubSize;
+          final i = sizes.indexWhere((s) => (s - cur).abs() < .3).clamp(0, sizes.length - 1);
+          void pick(int k) {
+            store.settings.epubSize = sizes[k];
+            store.changed();
+            set(() {});
+          }
+
+          return AppDialog(title: 'Text size', children: [
+            Row(children: [
+              Pill('A−', size: 16, onTap: i > 0 ? () => pick(i - 1) : null),
+              Expanded(
+                child: Center(
+                  child: AnimatedDefaultTextStyle(
+                    duration: const Duration(milliseconds: 200),
+                    style: TextStyle(fontFamily: 'Lora', fontSize: sizes[i] * 1.1, fontWeight: FontWeight.w600, color: C.ink),
+                    child: const Text('Aa'),
+                  ),
+                ),
+              ),
+              Pill('A+', size: 16, onTap: i < sizes.length - 1 ? () => pick(i + 1) : null),
+            ]),
+          ], actions: [
+            Btn('Done', kind: Kind.pri, onTap: () {
+              final ep = _ep;
+              if (ep != null && (ep.fontSize - store.settings.epubSize).abs() > .1) {
+                _paginate(_laidFor, keepOffset: ep.offsetOfPage(_page));
+              }
+              return true;
+            }),
+          ]);
+        }));
+  }
+
   // ---------------- zoom ----------------
 
   /// Keeps the zoomed page covering the screen (or centred when it's smaller).
@@ -240,8 +486,8 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     double axis(double v, double lo, double size, double view, double centre) {
       final len = size * s;
       if (len <= view) return centre * (1 - s);
-      final minV = view - s * (lo + size); // right/bottom edge reaches the screen edge
-      final maxV = -s * lo; // left/top edge reaches the screen edge
+      final minV = view - s * (lo + size);
+      final maxV = -s * lo;
       return v.clamp(minV - slack, maxV + slack);
     }
 
@@ -262,6 +508,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
   void _toggleZoom(Offset focal) {
     Buzz.tick();
+    _touch();
     if (_zoomed) {
       _zoomTo(1, Offset.zero);
     } else {
@@ -293,7 +540,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     return Offset(min(t.dx, _corner.dx - .5), t.dy);
   }
 
-  bool get _busy => _anim.isAnimating || _slide.isAnimating;
+  bool get _busy => _anim.isAnimating || _slide.isAnimating || _typeset != null;
 
   void _run(Offset Function(double) path, int ms, Curve curve, VoidCallback done) {
     _path = (v) => path(curve.transform(v));
@@ -306,8 +553,9 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   }
 
   void _turned(int delta) {
+    _touch();
     setState(() {
-      _page += delta;
+      _page = (_page + delta).clamp(0, max(0, _count - 1));
       _t = null;
     });
     _evict();
@@ -328,7 +576,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   }
 
   void _go(int dir) {
-    if (_busy || _doc == null || !_canGo(dir)) return;
+    if (_busy || !_ready || !_canGo(dir)) return;
     if (_zoomed) return _slideTo(dir);
     _want(_page + dir);
     _forward = dir > 0;
@@ -365,24 +613,31 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       toast('That’s the last page');
       return;
     }
-    openDialog((ctx) => AppDialog(title: 'You reached the end 🎉', children: [
-          Sub('That’s the last page of ${b.title}. Mark it as finished?'),
-        ], actions: [
-          const Btn('Not yet'),
-          Btn('Mark as finished', kind: Kind.pri, onTap: () {
-            store.setStatus(b, 'f');
-            Sfx.play('trophy');
-            final s = MediaQuery.sizeOf(ctx);
-            confetti(Offset(s.width / 2, s.height * .4));
-            toast('Marked as Finished');
-            return true;
-          }),
-        ]));
+    var rating = b.rating;
+    openDialog((ctx) => StatefulBuilder(
+          builder: (ctx, set) => AppDialog(title: 'You reached the end 🎉', children: [
+            Sub('That’s the last page of ${b.title}. How was it?'),
+            Center(child: StarRating(value: rating, size: 36, onChanged: (v) => set(() => rating = v))),
+            const SizedBox(height: 4),
+          ], actions: [
+            const Btn('Not yet'),
+            Btn('Mark as finished', kind: Kind.pri, onTap: () {
+              b.rating = rating;
+              store.setStatus(b, 'f');
+              Sfx.play('trophy');
+              final s = MediaQuery.sizeOf(ctx);
+              confetti(Offset(s.width / 2, s.height * .4));
+              toast('Marked as Finished');
+              return true;
+            }),
+          ]),
+        ));
   }
 
   // ---------------- gestures ----------------
 
   void _onTapUp(Offset p) {
+    _touch();
     final now = DateTime.now();
     if (_lastTap != null && now.difference(_lastTap!) < const Duration(milliseconds: 280) && (p - _lastTapPos).distance < 60) {
       _tapTimer?.cancel();
@@ -407,7 +662,8 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   }
 
   void _onScaleStart(ScaleStartDetails d) {
-    if (_doc == null || _busy) {
+    _touch();
+    if (!_ready || _busy) {
       _mode = '';
       return;
     }
@@ -428,7 +684,6 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
 
   void _onScaleUpdate(ScaleUpdateDetails d) {
     if (d.pointerCount >= 2 && _mode != 'pinch') {
-      // a second finger landed: switch to zooming
       if (_mode == 'curl') setState(() => _t = null);
       if (_chrome) setState(() => _chrome = false);
       _mode = 'pinch';
@@ -466,8 +721,8 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
         }
       case 'pan':
         final cl = _clampZo(_zs, _zo);
-        final atRight = (_zo.dx - cl.dx) <= 1 && (cl.dx - _clampZo(_zs, Offset(-1e9, cl.dy)).dx).abs() < 1;
-        final atLeft = (cl.dx - _clampZo(_zs, Offset(1e9, cl.dy)).dx).abs() < 1;
+        final minX = _clampZo(_zs, Offset(-1e9, cl.dy)).dx, maxX = _clampZo(_zs, Offset(1e9, cl.dy)).dx;
+        final atRight = (cl.dx - minX).abs() < 1, atLeft = (cl.dx - maxX).abs() < 1;
         if (_over < -70 || (atRight && vx < -900)) {
           _zo = cl;
           if (_canGo(1)) _slideTo(1);
@@ -496,7 +751,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
   void _curlMove(Offset p) {
     final d = p - _start;
     if (_t == null) {
-      if (d.distance < 8) return; // a tap, not a turn
+      if (d.distance < 8) return;
       if (_forward ? _page >= _count - 1 : _page <= 0) return;
       Buzz.tick();
     }
@@ -543,16 +798,26 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       },
       child: Scaffold(
         backgroundColor: _wood,
+        resizeToAvoidBottomInset: false, // the keyboard (for notes) must not re-flow the book
         body: DecoratedBox(
           decoration: const BoxDecoration(
             gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFF3A2816), _wood, Color(0xFF1E140A)]),
           ),
           child: LayoutBuilder(builder: (context, cons) {
             _view = cons.biggest;
-            final pad = EdgeInsets.fromLTRB(14, mq.padding.top + 58, 14, mq.padding.bottom + 84);
+            final pad = EdgeInsets.fromLTRB(14, mq.padding.top + 58, 14, mq.padding.bottom + 150);
             final availW = cons.maxWidth - pad.horizontal, availH = cons.maxHeight - pad.vertical;
-            final cur = _cache[_page];
-            if (cur != null && _t == null && _slideDir == 0) _aspect = cur.width / cur.height;
+            final src = _src;
+            if (src is EpubSource) {
+              final want = Size(availW, availH);
+              if (_typeset == null && ((_laidFor.width - want.width).abs() > 2 || (_laidFor.height - want.height).abs() > 2)) {
+                WidgetsBinding.instance.addPostFrameCallback((_) => _paginate(want));
+              }
+              _aspect = availW / availH;
+            } else {
+              final cur = _cache[_page];
+              if (cur != null && _t == null && _slideDir == 0) _aspect = cur.width / cur.height;
+            }
             var w = availW, h = w / _aspect;
             if (h > availH) {
               h = availH;
@@ -560,20 +825,20 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
             }
             _rect = Rect.fromLTWH(pad.left + (availW - w) / 2, pad.top + (availH - h) / 2, w, h);
             final rw = min(availW * mq.devicePixelRatio, 1500.0);
-            if (_doc != null && (rw - _renderW).abs() > 40) {
+            if (_ready && (rw - _renderW).abs() > 40) {
               _renderW = rw;
               for (final i in _cache.values) {
                 i.dispose();
               }
               _cache.clear();
             }
-            if (_doc != null) WidgetsBinding.instance.addPostFrameCallback((_) => _prefetch());
+            if (_ready) WidgetsBinding.instance.addPostFrameCallback((_) => _prefetch());
             final next = _slideDir == 0 ? null : _page + _slideDir;
             return Stack(children: [
               if (_err != null)
                 Center(child: Text(_err!, style: nu(16, FontWeight.w700, const Color(0xFFF3EEE6))))
-              else if (_doc == null)
-                Center(child: CircularProgressIndicator(color: C.brown))
+              else if (!_ready || _typeset != null)
+                Center(child: _Typesetting(progress: _typeset, epub: _epub))
               else
                 Positioned.fill(
                   child: GestureDetector(
@@ -596,13 +861,14 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                         next: next == null ? null : (_hi[next] ?? _cache[next]),
                         nextZo: _nextZo,
                         view: _view,
+                        marked: _t == null && _slideDir == 0 && _markHere != null,
                       ),
                     ),
                   ),
                 ),
               _topBar(mq),
               _bottomBar(mq),
-              if (_hint && _doc != null)
+              if (_hint && _ready && _typeset == null)
                 Positioned(
                   left: 0,
                   right: 0,
@@ -675,8 +941,7 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                 _circle(
                   AnimatedSwitcher(
                     duration: const Duration(milliseconds: 200),
-                    child: Icon(_zoomed ? Icons.zoom_out_map_rounded : Icons.zoom_in_rounded,
-                        key: ValueKey(_zoomed), color: Colors.white, size: 22),
+                    child: Icon(_zoomed ? Icons.zoom_out_map_rounded : Icons.zoom_in_rounded, key: ValueKey(_zoomed), color: Colors.white, size: 22),
                   ),
                   () => _toggleZoom(_view.center(Offset.zero)),
                   _zoomed ? 'Fit page' : 'Zoom in',
@@ -689,10 +954,33 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     );
   }
 
+  Widget _tool(IconData icon, String label, VoidCallback onTap, {bool on = false}) => Expanded(
+        child: Semantics(
+          button: true,
+          label: label,
+          child: Pressable(
+            onTap: onTap,
+            scale: .9,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 220),
+                width: 40,
+                height: 34,
+                decoration: BoxDecoration(color: on ? const Color(0x33F2B84B) : Colors.transparent, borderRadius: BorderRadius.circular(12)),
+                alignment: Alignment.center,
+                child: Icon(icon, size: 22, color: on ? const Color(0xFFF2B84B) : const Color(0xFFF3EEE6)),
+              ),
+              Text(label, style: nu(10.5, FontWeight.w700, const Color(0xFFCDBFAE))),
+            ]),
+          ),
+        ),
+      );
+
   Widget _bottomBar(MediaQueryData mq) {
-    final show = _chrome && _count > 0;
+    final show = _chrome && _count > 0 && _typeset == null;
     final shown = (_slideValue ?? _page.toDouble()).round();
     final pct = _count <= 1 ? 100 : (shown / (_count - 1) * 100).round();
+    final here = _markHere;
     return Positioned(
       left: 0,
       right: 0,
@@ -707,9 +995,9 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
             duration: const Duration(milliseconds: 260),
             curve: ease,
             child: Container(
-              padding: EdgeInsets.fromLTRB(18, 10, 18, mq.padding.bottom + 14),
+              padding: EdgeInsets.fromLTRB(18, 14, 18, mq.padding.bottom + 10),
               decoration: const BoxDecoration(
-                gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0x002B1D10), Color(0xCC1E140A)]),
+                gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0x002B1D10), Color(0xE61E140A)]),
               ),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 Row(children: [
@@ -742,13 +1030,16 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                     onChangeEnd: (v) {
                       final target = v.round();
                       setState(() => _slideValue = null);
-                      if (target == _page) return;
-                      Sfx.play('page');
-                      if (_zoomed) _zo = _topOf(_zs, _zo);
-                      _turned(target - _page);
+                      _jump(target);
                     },
                   ),
                 ),
+                Row(children: [
+                  _tool(here != null ? Icons.bookmark_rounded : Icons.bookmark_add_outlined, 'Bookmark', _toggleBookmark, on: here != null),
+                  _tool(Icons.edit_note_rounded, 'Note', _editNote, on: here != null && here.note.isNotEmpty),
+                  _tool(Icons.collections_bookmark_outlined, 'Notes (${b.marks.length})', _openMarks),
+                  if (_epub) _tool(Icons.format_size_rounded, 'Text size', _textSize),
+                ]),
               ]),
             ),
           ),
@@ -757,6 +1048,27 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     );
   }
 }
+
+/// "Setting the type…" while an EPUB is being laid out into pages.
+class _Typesetting extends StatelessWidget {
+  final double? progress;
+  final bool epub;
+  const _Typesetting({required this.progress, required this.epub});
+  @override
+  Widget build(BuildContext context) {
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      SizedBox(
+        width: 54,
+        height: 54,
+        child: CircularProgressIndicator(value: progress, strokeWidth: 4, color: const Color(0xFFF2B84B), backgroundColor: const Color(0x22FFFFFF)),
+      ),
+      const SizedBox(height: 16),
+      Text(epub ? (progress == null ? 'Opening the book…' : 'Setting the type… ${((progress ?? 0) * 100).round()}%') : 'Opening…',
+          style: nu(14, FontWeight.w700, const Color(0xFFF3EEE6))),
+    ]);
+  }
+}
+
 
 /// Draws the page: zoomed and sliding, or flat and curling over like paper.
 class _PagePainter extends CustomPainter {
@@ -767,6 +1079,7 @@ class _PagePainter extends CustomPainter {
   final Offset zo, nextZo;
   final int slideDir;
   final Size view;
+  final bool marked;
   _PagePainter({
     required this.rect,
     this.front,
@@ -780,6 +1093,7 @@ class _PagePainter extends CustomPainter {
     this.next,
     required this.nextZo,
     required this.view,
+    this.marked = false,
   });
 
   void _page(Canvas c, ui.Image? img) {
@@ -803,6 +1117,20 @@ class _PagePainter extends CustomPainter {
       Rect.fromLTWH(rect.left, rect.top, 22, rect.height),
       Paint()..shader = ui.Gradient.linear(rect.topLeft, rect.topLeft + const Offset(22, 0), [const Color(0x24000000), const Color(0x00000000)]),
     );
+  }
+
+  void _ribbon(Canvas c) {
+    if (!marked) return;
+    final w = max(14.0, rect.width * .045), h = w * 2.4, x = rect.right - w * 2.2;
+    final path = Path()
+      ..moveTo(x, rect.top - 2)
+      ..lineTo(x + w, rect.top - 2)
+      ..lineTo(x + w, rect.top + h)
+      ..lineTo(x + w / 2, rect.top + h * .78)
+      ..lineTo(x, rect.top + h)
+      ..close();
+    c.drawShadow(path, Colors.black, 3, false);
+    c.drawPath(path, Paint()..color = const Color(0xFFF26A21));
   }
 
   void _shadow(Canvas c) => c.drawRRect(
@@ -830,6 +1158,7 @@ class _PagePainter extends CustomPainter {
     c.scale(zs);
     _shadow(c);
     _page(c, img);
+    if (img == front) _ribbon(c);
     c.restore();
   }
 
@@ -850,6 +1179,7 @@ class _PagePainter extends CustomPainter {
       _page(c, front);
       _spine(c);
       c.restore();
+      _ribbon(c);
       return;
     }
     final d = cc - tt;

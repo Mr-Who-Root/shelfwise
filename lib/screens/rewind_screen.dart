@@ -13,6 +13,7 @@ import '../services/sfx.dart';
 import '../theme.dart';
 import '../widgets/book_cover.dart';
 import '../widgets/common.dart';
+import '../widgets/stars.dart';
 
 /// Plays the story-style reading recap for 'month', 'year' or 'all'.
 Future<void> openRewind(String period) {
@@ -97,6 +98,8 @@ class _RewindScreenState extends State<RewindScreen> with TickerProviderStateMix
     final bars = store.barsFor(p);
     final best = bars.fold<(int, int)>((-1, 0), (a, e) => e.$2 > a.$2 ? (bars.indexOf(e), e.$2) : a);
     final badges = rewards.where((r) => store.claimed.contains(r.id)).toList();
+    final secs = store.readSecondsIn(p);
+    final rated = store.topRated(p);
     const fullMonths = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
     String bestLabel() {
       final l = bars[best.$1].$1;
@@ -119,6 +122,9 @@ class _RewindScreenState extends State<RewindScreen> with TickerProviderStateMix
         _Slide(const Color(0xFFB6D8D5), ink, () => _best('Your biggest $unit was', bestLabel(), best.$2, bars, best.$1)),
       if (top != null) _Slide(const Color(0xFF1D4A37), Colors.white, () => _shelf(top.$1, top.$2)),
       if (pages > 0) _Slide(const Color(0xFFF5ECDF), ink, () => _bigNumber('You turned', pages, pages == 1 ? 'page in Shelfwise' : 'pages in Shelfwise', ink, emoji: '📖')),
+      if (secs >= 600) _Slide(const Color(0xFF1B2A44), Colors.white, () => _time(secs)),
+      if (rated != null) _Slide(const Color(0xFFF6B3C3), ink, () => _rated(rated)),
+      if (p != 'month' && store.goalThisYear > 0) _Slide(const Color(0xFF5FBF9A), ink, () => _goal()),
       if (todos > 0 || streak > 1) _Slide(const Color(0xFF8A5A9E), Colors.white, () => _todos(todos, streak)),
       if (badges.isNotEmpty) _Slide(const Color(0xFF2F6F8F), Colors.white, () => _badges(badges)),
       if (fin.isEmpty && added.isEmpty) _Slide(const Color(0xFFF6B300), ink, () => _empty()),
@@ -254,6 +260,57 @@ class _RewindScreenState extends State<RewindScreen> with TickerProviderStateMix
         SizedBox(height: 132, child: _coverRow(c.books.take(4).toList())),
       ]);
 
+  Widget _time(int secs) => Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        FadeIn(child: _Clock()),
+        const SizedBox(height: 24),
+        FadeIn(delay: 150, child: Text('You read for', style: _sans(26, Colors.white))),
+        FadeIn(delay: 300, child: Text(fmtDuration(secs), textAlign: TextAlign.center, style: _num(78, Colors.white))),
+        FadeIn(delay: 450, child: Text('inside Shelfwise', style: _sans(22, Colors.white))),
+      ]);
+
+  Widget _rated(Item b) => Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        FadeIn(child: Text('Your top-rated read', style: _sans(26, const Color(0xFF111111)))),
+        const SizedBox(height: 22),
+        TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0, end: 1),
+          duration: const Duration(milliseconds: 800),
+          curve: springCurve,
+          builder: (_, v, c) => Transform.scale(scale: .6 + .4 * v, child: Transform.rotate(angle: (1 - v) * -.3, child: c)),
+          child: _cover(b, 130, 186),
+        ),
+        const SizedBox(height: 20),
+        FadeIn(delay: 300, child: Text(b.title, textAlign: TextAlign.center, style: _serif(34, const Color(0xFF111111)))),
+        FadeIn(delay: 400, child: Text(b.author, style: _sans(17, const Color(0xFF111111), FontWeight.w700))),
+        const SizedBox(height: 12),
+        FadeIn(delay: 550, child: StarRating(value: b.rating, size: 34, empty: const Color(0x55111111))),
+      ]);
+
+  Widget _goal() {
+    final done = store.finishedThisYear, goal = store.goalThisYear;
+    return Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+      FadeIn(child: Text('Your ${DateTime.now().year} goal', style: _sans(26, const Color(0xFF111111)))),
+      const SizedBox(height: 24),
+      SizedBox(
+        width: 190,
+        height: 190,
+        child: TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0, end: (done / goal).clamp(0.0, 1.0)),
+          duration: const Duration(milliseconds: 1500),
+          curve: ease,
+          builder: (_, v, _) => Stack(alignment: Alignment.center, children: [
+            Positioned.fill(child: CircularProgressIndicator(value: v, strokeWidth: 16, color: const Color(0xFF111111), backgroundColor: const Color(0x33111111), strokeCap: StrokeCap.round)),
+            Column(mainAxisSize: MainAxisSize.min, children: [
+              Text('$done', style: _num(64, const Color(0xFF111111))),
+              Text('of $goal books', style: _sans(16, const Color(0xFF111111))),
+            ]),
+          ]),
+        ),
+      ),
+      const SizedBox(height: 22),
+      FadeIn(delay: 600, child: Text(done >= goal ? 'Goal smashed. 🎉' : '${goal - done} more to go. You’ve got this.', style: _sans(18, const Color(0xFF111111)))),
+    ]);
+  }
+
   Widget _todos(int n, int streak) => Column(mainAxisAlignment: MainAxisAlignment.center, children: [
         FadeIn(child: Text('You ticked off', style: _sans(26, Colors.white))),
         FadeIn(delay: 150, child: _count(n, _num(120, Colors.white))),
@@ -335,7 +392,11 @@ class _RewindScreenState extends State<RewindScreen> with TickerProviderStateMix
               ('📚', fin.length, 'finished'),
               ('➕', added.length, p == 'all' ? 'on shelves' : 'added'),
               ('✅', todos, 'to-dos done'),
-              pages > 0 ? ('📖', pages, 'pages turned') : ('🔥', streak, 'day streak'),
+              store.readSecondsIn(p) >= 3600
+                  ? ('⏱️', store.readSecondsIn(p) ~/ 3600, 'hours reading')
+                  : pages > 0
+                      ? ('📖', pages, 'pages turned')
+                      : ('🔥', streak, 'day streak'),
             ],
             topShelf: top == null ? null : '${top.$1.emoji} ${top.$1.name}',
           ),
@@ -446,6 +507,59 @@ class _RewindScreenState extends State<RewindScreen> with TickerProviderStateMix
       ),
     );
   }
+}
+
+/// A clock whose hands spin round (for the reading-time slide).
+class _Clock extends StatefulWidget {
+  @override
+  State<_Clock> createState() => _ClockState();
+}
+
+class _ClockState extends State<_Clock> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(seconds: 3))..repeat();
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: _c,
+        builder: (_, _) => CustomPaint(size: const Size(110, 110), painter: _ClockPainter(_c.value)),
+      );
+}
+
+class _ClockPainter extends CustomPainter {
+  final double t;
+  _ClockPainter(this.t);
+  @override
+  void paint(Canvas c, Size s) {
+    final o = s.center(Offset.zero), r = s.width / 2;
+    c.drawCircle(o, r, Paint()..color = const Color(0x22FFFFFF));
+    c.drawCircle(o, r - 4, Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4);
+    for (var i = 0; i < 12; i++) {
+      final a = i * pi / 6;
+      c.drawLine(o + Offset(cos(a), sin(a)) * (r - 12), o + Offset(cos(a), sin(a)) * (r - 18), Paint()
+        ..color = Colors.white
+        ..strokeWidth = 3
+        ..strokeCap = StrokeCap.round);
+    }
+    final hand = Paint()
+      ..color = const Color(0xFFF2B84B)
+      ..strokeWidth = 5
+      ..strokeCap = StrokeCap.round;
+    final m = t * 2 * pi * 4 - pi / 2, h = t * 2 * pi / 3 - pi / 2;
+    c.drawLine(o, o + Offset(cos(m), sin(m)) * (r - 20), hand);
+    c.drawLine(o, o + Offset(cos(h), sin(h)) * (r - 36), hand..color = Colors.white);
+    c.drawCircle(o, 6, Paint()..color = const Color(0xFFF2B84B));
+  }
+
+  @override
+  bool shouldRepaint(_ClockPainter o) => o.t != t;
 }
 
 /// A little open book whose right-hand page keeps flipping over the spine.

@@ -11,6 +11,7 @@ import 'screens/splash.dart';
 import 'screens/tour.dart';
 import 'services/notify.dart';
 import 'services/sfx.dart';
+import 'services/updater.dart';
 import 'theme.dart';
 import 'widgets/common.dart';
 
@@ -22,6 +23,7 @@ Future<void> main() async {
   Look.apply();
   runApp(const ShelfwiseApp());
   unawaited(Notifier.init());
+  if (store.settings.autoUpdate) Future.delayed(const Duration(seconds: 4), () => Updater.check());
   Future.delayed(const Duration(seconds: 2), Sfx.warmUp);
 }
 

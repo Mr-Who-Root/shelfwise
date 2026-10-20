@@ -32,10 +32,18 @@ class _FullShelf extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final mq = MediaQuery.of(context);
+    // light theme: a warm cream wall with wooden shelves; dark theme: the mockup's dark wood
+    final dark = C.dark;
+    final wall = dark ? const Color(0xFF2B1D10) : const Color(0xFFF1E3CB);
+    final ink = dark ? const Color(0xFFF3EEE6) : C.ink;
+    final soft = dark ? const Color(0xFFCDBFAE) : C.muted;
+    final nook = dark
+        ? const [Color.fromRGBO(255, 255, 255, .03), Color.fromRGBO(255, 255, 255, .09)]
+        : const [Color.fromRGBO(120, 75, 30, .05), Color.fromRGBO(120, 75, 30, .13)];
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.light,
+      value: dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
       child: Scaffold(
-      backgroundColor: const Color(0xFF2B1D10),
+      backgroundColor: wall,
       body: ListenableBuilder(
         listenable: store,
         builder: (context, _) {
@@ -43,13 +51,13 @@ class _FullShelf extends StatelessWidget {
           return Column(children: [
             Container(
               padding: EdgeInsets.fromLTRB(16, mq.padding.top + 14, 16, 12),
-              decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color.fromRGBO(255, 255, 255, .12)))),
+              decoration: BoxDecoration(border: Border(bottom: BorderSide(color: dark ? const Color.fromRGBO(255, 255, 255, .12) : C.line))),
               child: Row(children: [
                 Expanded(
                   child: Text('📚 ${store.profile.first}’s shelf',
-                      maxLines: 1, overflow: TextOverflow.ellipsis, style: nu(18, FontWeight.w800, const Color(0xFFF3EEE6))),
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: nu(18, FontWeight.w800, ink)),
                 ),
-                Text(plural(total, 'book'), style: nu(12, FontWeight.w700, const Color(0xFFCDBFAE))),
+                Text(plural(total, 'book'), style: nu(12, FontWeight.w700, soft)),
                 const SizedBox(width: 10),
                 Semantics(
                   button: true,
@@ -59,9 +67,9 @@ class _FullShelf extends StatelessWidget {
                     child: Container(
                       width: 38,
                       height: 38,
-                      decoration: const BoxDecoration(color: Color.fromRGBO(255, 255, 255, .14), shape: BoxShape.circle),
+                      decoration: BoxDecoration(color: dark ? const Color.fromRGBO(255, 255, 255, .14) : C.chip, shape: BoxShape.circle),
                       alignment: Alignment.center,
-                      child: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
+                      child: Icon(Icons.close_rounded, color: ink, size: 18),
                     ),
                   ),
                 ),
@@ -69,7 +77,7 @@ class _FullShelf extends StatelessWidget {
             ),
             Expanded(
               child: store.cols.isEmpty
-                  ? Center(child: Text('No books on this shelf yet.', style: nu(15, FontWeight.w600, const Color(0xFFCDBFAE))))
+                  ? Center(child: Text('No books on this shelf yet.', style: nu(15, FontWeight.w600, soft)))
                   : ListView(
                       padding: EdgeInsets.fromLTRB(16, 8, 16, 24 + mq.padding.bottom),
                       children: [
@@ -80,25 +88,22 @@ class _FullShelf extends StatelessWidget {
                               Padding(
                                 padding: const EdgeInsets.fromLTRB(2, 18, 2, 10),
                                 child: Row(children: [
-                                  Expanded(child: Text('${c.emoji} ${c.name}', style: nu(16, FontWeight.w800, const Color(0xFFF3EEE6)))),
-                                  Text(plural(c.books.length, 'book'), style: nu(12, FontWeight.w700, const Color(0xFFCDBFAE))),
+                                  Expanded(child: Text('${c.emoji} ${c.name}', style: nu(16, FontWeight.w800, ink))),
+                                  Text(plural(c.books.length, 'book'), style: nu(12, FontWeight.w700, soft)),
                                 ]),
                               ),
                               Container(
                                 padding: const EdgeInsets.fromLTRB(10, 22, 10, 10),
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.vertical(bottom: Radius.circular(6)),
-                                  border: Border(bottom: BorderSide(color: C.plank, width: 8)),
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                    colors: [Color.fromRGBO(255, 255, 255, .03), Color.fromRGBO(255, 255, 255, .09)],
-                                  ),
+                                  border: Border(bottom: BorderSide(color: dark ? C.plank : const Color(0xFFA9834F), width: 8)),
+                                  boxShadow: dark ? null : const [BoxShadow(color: Color.fromRGBO(90, 55, 20, .22), offset: Offset(0, 6), blurRadius: 8, spreadRadius: -4)],
+                                  gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: nook),
                                 ),
                                 child: c.items.isEmpty
                                     ? Padding(
                                         padding: const EdgeInsets.all(14),
-                                        child: Text('Empty shelf', textAlign: TextAlign.center, style: nu(13, FontWeight.w700, const Color(0xFFCDBFAE))),
+                                        child: Text('Empty shelf', textAlign: TextAlign.center, style: nu(13, FontWeight.w700, soft)),
                                       )
                                     : Wrap(
                                         spacing: 10,

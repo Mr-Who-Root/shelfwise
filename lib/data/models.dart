@@ -4,6 +4,23 @@ final _rnd = Random();
 String newId() =>
     DateTime.now().microsecondsSinceEpoch.toRadixString(36) + _rnd.nextInt(1 << 20).toRadixString(36);
 
+/// A bookmark (empty [note]) or a note on one page of a book's copy.
+class Mark {
+  int page;
+  int pos; // EPUB character offset of the page, so marks survive re-pagination
+  String note;
+  int at;
+  Mark({required this.page, this.pos = -1, this.note = '', int? at}) : at = at ?? DateTime.now().millisecondsSinceEpoch;
+
+  Map<String, dynamic> toJson() => {'p': page, if (pos >= 0) 'o': pos, if (note.isNotEmpty) 'n': note, 'at': at};
+  factory Mark.fromJson(Map<String, dynamic> j) => Mark(
+        page: (j['p'] as num?)?.toInt() ?? 0,
+        pos: (j['o'] as num?)?.toInt() ?? -1,
+        note: (j['n'] ?? '') as String,
+        at: (j['at'] as num?)?.toInt(),
+      );
+}
+
 /// Something that sits on a shelf: a book, or a decoration when [gadget] is set.
 class Item {
   String id;
@@ -22,6 +39,11 @@ class Item {
   int pages; // page count of the attached PDF
   int page; // last page read (0-based)
   int? readAt; // when it was last opened in the reader
+  int pos; // EPUB: character offset of the last page read
+  int rating; // 0 = not rated, 1..5 stars
+  int readMs; // time spent reading this book's copy
+  List<Mark> marks;
+  String isbn;
 
   Item({
     String? id,
@@ -40,12 +62,19 @@ class Item {
     this.pages = 0,
     this.page = 0,
     this.readAt,
+    this.pos = 0,
+    this.rating = 0,
+    this.readMs = 0,
+    List<Mark>? marks,
+    this.isbn = '',
   })  : id = id ?? newId(),
+        marks = marks ?? [],
         tags = tags ?? [],
         addedAt = addedAt ?? DateTime.now().millisecondsSinceEpoch;
 
   bool get isDecor => gadget != null;
   bool get hasCopy => file != null;
+  bool get isEpub => file != null && file!.toLowerCase().endsWith('.epub');
   bool get finished => status == 'f';
 
   Item.decor(String key, {bool sub = false}) : this(gadget: key, sub: sub);
@@ -65,6 +94,11 @@ class Item {
           if (pages > 0) 'pages': pages,
           if (page > 0) 'page': page,
           if (readAt != null) 'readAt': readAt,
+          if (pos > 0) 'pos': pos,
+          if (rating > 0) 'rating': rating,
+          if (readMs > 0) 'readMs': readMs,
+          if (marks.isNotEmpty) 'marks': marks.map((e) => e.toJson()).toList(),
+          if (isbn.isNotEmpty) 'isbn': isbn,
         },
         if (sub) 'sh': 1,
         'at': addedAt,
@@ -88,6 +122,11 @@ class Item {
         pages: (j['pages'] as num?)?.toInt() ?? 0,
         page: (j['page'] as num?)?.toInt() ?? 0,
         readAt: (j['readAt'] as num?)?.toInt(),
+        pos: (j['pos'] as num?)?.toInt() ?? 0,
+        rating: (j['rating'] as num?)?.toInt() ?? 0,
+        readMs: (j['readMs'] as num?)?.toInt() ?? 0,
+        marks: ((j['marks'] ?? const []) as List).map((e) => Mark.fromJson((e as Map).cast<String, dynamic>())).toList(),
+        isbn: (j['isbn'] ?? '') as String,
       );
 
   Item copy() => Item.fromJson(toJson());
@@ -245,6 +284,12 @@ class Settings {
   int accent;
   String font;
   double textScale;
+  String bg; // background colour family
+  String pattern; // background pattern
+  bool autoUpdate;
+  bool backupFiles;
+  double epubSize;
+  String skipVersion;
 
   Settings({
     this.reminders = false,
@@ -255,6 +300,12 @@ class Settings {
     this.accent = 0,
     this.font = 'Nunito',
     this.textScale = 1,
+    this.bg = 'cream',
+    this.pattern = 'none',
+    this.autoUpdate = true,
+    this.backupFiles = false,
+    this.epubSize = 18,
+    this.skipVersion = '',
   });
 
   Map<String, dynamic> toJson() => {
@@ -266,6 +317,12 @@ class Settings {
         'accent': accent,
         'font': font,
         'textScale': textScale,
+        'bg': bg,
+        'pattern': pattern,
+        'autoUpdate': autoUpdate,
+        'backupFiles': backupFiles,
+        'epubSize': epubSize,
+        if (skipVersion.isNotEmpty) 'skipVersion': skipVersion,
       };
   factory Settings.fromJson(Map<String, dynamic> j) => Settings(
         reminders: j['reminders'] == true,
@@ -276,5 +333,11 @@ class Settings {
         accent: (j['accent'] as num?)?.toInt() ?? 0,
         font: (j['font'] ?? 'Nunito') as String,
         textScale: (j['textScale'] as num?)?.toDouble() ?? 1,
+        bg: (j['bg'] ?? 'cream') as String,
+        pattern: (j['pattern'] ?? 'none') as String,
+        autoUpdate: j['autoUpdate'] != false,
+        backupFiles: j['backupFiles'] == true,
+        epubSize: (j['epubSize'] as num?)?.toDouble() ?? 18,
+        skipVersion: (j['skipVersion'] ?? '') as String,
       );
 }

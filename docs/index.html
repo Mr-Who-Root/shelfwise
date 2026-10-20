@@ -802,7 +802,7 @@ h1,h2,h3{margin:0}
         </div>
         <p class="fineprint rise" style="--r:4">Android 7.0+ · Free · No account, no ads, works offline</p>
         <p class="release rise" style="--r:4">
-          <span class="vpill">v<span data-app-version>1.1.0</span></span>
+          <span class="vpill">v<span data-app-version>1.2.0</span></span>
           <a href="https://github.com/Mr-Who-Root/shelfwise/releases/latest">Latest release <span aria-hidden="true">↗</span></a>
         </p>
 
@@ -1182,18 +1182,25 @@ h1,h2,h3{margin:0}
           </div>
         </article>
 
+        <!-- Scan -->
+        <article class="fcard reveal">
+          <span class="ficon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2"/><path d="M7 8v8M10 8v8M13 8v8M16 8v8"/></svg></span>
+          <h3>Scan to add</h3>
+          <p>Point the camera at a book’s barcode and the title, author, description and cover fill in by themselves. You can type the ISBN instead.</p>
+        </article>
+
         <!-- Reader -->
         <article class="fcard reveal">
           <span class="ficon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5.5C5 4 8.5 4 12 6c3.5-2 7-2 10-.5V19c-3-1.5-6.5-1.5-10 .5-3.5-2-7-2-10-.5z"/><path d="M12 6v13.5"/></svg></span>
-          <h3>Read your own PDFs</h3>
-          <p>Have a copy of the book? Attach the PDF when you add it. Tap <b>Read</b> and pages curl over like paper when you drag a corner. Shelfwise remembers the page you stopped on, and you can pinch to zoom.</p>
+          <h3>Read your own PDFs &amp; EPUBs</h3>
+          <p>Attach a PDF or EPUB and tap <b>Read</b>. Pages curl over like paper, you can pinch or double-tap to zoom, and EPUBs re-flow at the text size you like. Bookmark pages, write notes, and pick up exactly where you stopped.</p>
         </article>
 
         <!-- Rewind -->
         <article class="fcard reveal" style="--d:1">
           <span class="ficon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M10 9.5v5l4-2.5z"/></svg></span>
-          <h3>Your Rewind</h3>
-          <p>A story-style recap of this month, this year or all time: books finished, your biggest month, favourite shelf and streaks. Share it or save the card to your photos. Your stats page can be shared as a card too.</p>
+          <h3>Goals, time &amp; Rewind</h3>
+          <p>Set a yearly reading goal and Shelfwise counts the time you actually spend reading. Rate books with stars. Rewind is a story-style recap of your month, year or all time (hours read, top-rated book, biggest month) that you can share or save.</p>
         </article>
 
         <!-- Look -->
@@ -1261,7 +1268,7 @@ h1,h2,h3{margin:0}
           <span class="note-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v4.5h-4.5"/></svg></span>
           <div>
             <h3>Updating to a new version</h3>
-            <p>Download the new APK and install it over the old one. Your shelves, books and to-dos stay right where they are.</p>
+            <p>Shelfwise tells you when a new version is out and installs it for you (Settings → Updates). You can also download the new APK and install it over the old one. Your shelves, books and to-dos stay where they are.</p>
           </div>
         </div>
         <div class="note dark reveal" style="--d:1">
@@ -1336,7 +1343,7 @@ h1,h2,h3{margin:0}
         </div>
         <p class="fineprint">Android 7.0+ · Free · No account, no ads, works offline</p>
         <p class="release">
-          <span class="vpill">v<span data-app-version>1.1.0</span></span>
+          <span class="vpill">v<span data-app-version>1.2.0</span></span>
           <a href="https://github.com/Mr-Who-Root/shelfwise/releases/latest">Latest release <span aria-hidden="true">↗</span></a>
         </p>
       </div>
@@ -1360,7 +1367,7 @@ h1,h2,h3{margin:0}
     </div>
     <div class="copy">
       <span>© 2026 Shelfwise</span>
-      <span>Android 7.0+ · v<span data-app-version>1.1.0</span></span>
+      <span>Android 7.0+ · v<span data-app-version>1.2.0</span></span>
     </div>
   </div>
 </footer>
@@ -1373,7 +1380,7 @@ h1,h2,h3{margin:0}
 </dialog>
 
 <script>
-const APP_VERSION = "1.1.0"; // ← bump this on every release
+const APP_VERSION = "1.2.0"; // ← bump this on every release
 
 (() => {
   "use strict";
@@ -1405,6 +1412,14 @@ const APP_VERSION = "1.1.0"; // ← bump this on every release
 
   /* ---------- Version label ---------- */
   safe(() => $$("[data-app-version]").forEach((el) => { el.textContent = APP_VERSION; }));
+  // Show the real latest release from GitHub (falls back to APP_VERSION offline).
+  safe(() => fetch("https://api.github.com/repos/Mr-Who-Root/shelfwise/releases/latest")
+    .then((r) => r.ok ? r.json() : null)
+    .then((j) => {
+      const v = j && j.tag_name ? String(j.tag_name).replace(/^v/, "") : null;
+      if (v) $$("[data-app-version]").forEach((el) => { el.textContent = v; });
+    })
+    .catch(() => {}));
 
   /* ---------- Sticky header shadow ---------- */
   safe(() => {

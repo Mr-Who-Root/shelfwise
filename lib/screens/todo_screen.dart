@@ -81,8 +81,11 @@ class _TodoScreenState extends State<TodoScreen> {
             padding: EdgeInsets.fromLTRB(14, mq.padding.top + 26, 14, 170),
             children: [
               Padding(
-                padding: const EdgeInsets.only(left: 6, right: 60),
-                child: Text('To-do', style: nu((mq.size.width * .08).clamp(26.0, 32.0), FontWeight.w800).copyWith(letterSpacing: -.4)),
+                padding: const EdgeInsets.only(left: 6, right: 6),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Expanded(child: Text('To-do', style: nu((mq.size.width * .08).clamp(26.0, 32.0), FontWeight.w800).copyWith(letterSpacing: -.4))),
+                  const BellButton(),
+                ]),
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(6, 2, 6, 14),
@@ -105,7 +108,6 @@ class _TodoScreenState extends State<TodoScreen> {
               if (list.isEmpty) _empty() else _bento(list),
             ],
           ),
-          Positioned(top: mq.padding.top + 22, right: 20, child: const BellButton()),
           Positioned(
             right: 18,
             bottom: 96 + mq.padding.bottom,

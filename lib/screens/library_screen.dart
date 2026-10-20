@@ -16,6 +16,8 @@ import '../widgets/copy_panel.dart';
 import '../widgets/dialogs.dart';
 import '../widgets/fx.dart';
 import '../widgets/shelf.dart';
+import '../widgets/stars.dart';
+import '../widgets/update_card.dart';
 import 'add_book_screen.dart';
 import 'bell.dart';
 import 'full_shelf.dart';
@@ -32,7 +34,8 @@ class LibraryScreen extends StatefulWidget {
   final bool home;
   final VoidCallback onProfile;
   final VoidCallback onTodo;
-  const LibraryScreen({super.key, required this.home, required this.onProfile, required this.onTodo});
+  final VoidCallback onStats;
+  const LibraryScreen({super.key, required this.home, required this.onProfile, required this.onTodo, required this.onStats});
 
   @override
   State<LibraryScreen> createState() => _LibraryScreenState();
@@ -198,16 +201,21 @@ class _LibraryScreenState extends State<LibraryScreen> {
               scale: .9,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                decoration: BoxDecoration(color: const Color(0xFFE5F1F6), borderRadius: BorderRadius.circular(16)),
+                decoration: BoxDecoration(color: C.dark ? C.chip : const Color(0xFFE5F1F6), borderRadius: BorderRadius.circular(16)),
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  const SvgIcon(Ic.fullscreen, color: Color(0xFF1F6F8B), size: 16, stroke: 2.2),
+                  SvgIcon(Ic.fullscreen, color: C.dark ? C.chipText : const Color(0xFF1F6F8B), size: 16, stroke: 2.2),
                   const SizedBox(width: 6),
-                  Text('Full view', style: nu(13, FontWeight.w800, const Color(0xFF1F6F8B))),
+                  Text('Full view', style: nu(13, FontWeight.w800, C.dark ? C.chipText : const Color(0xFF1F6F8B))),
                 ]),
               ),
             ),
           ),
         ]),
+        const UpdateCard(),
+        if (store.goalThisYear > 0) ...[
+          const SizedBox(height: 12),
+          _GoalCard(onTap: widget.onStats),
+        ],
         if (_lastRead() case final b?) ...[
           const SizedBox(height: 12),
           _ContinueCard(b),
@@ -528,7 +536,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text('${b.author} · ${status[b.status]}', style: nu(14, FontWeight.w600, C.muted)),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 4),
+                    StarRating(
+                      value: b.rating,
+                      size: 22,
+                      onChanged: (v) {
+                        b.rating = v;
+                        store.changed();
+                      },
+                    ),
+                    const SizedBox(height: 6),
                     Pill(b.cover == null ? 'Upload cover' : 'Change cover',
                         kind: Kind.pri, size: 13, pad: const EdgeInsets.symmetric(horizontal: 14, vertical: 9), onTap: pickCover),
                   ]),
@@ -576,6 +593,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       Sfx.play('check');
       final size = MediaQuery.sizeOf(context);
       confetti(Offset(size.width / 2, size.height * .45), count: 36);
+      if (b.rating == 0) Future.delayed(const Duration(milliseconds: 650), () => askRating(b));
     }
     return true;
   }
@@ -740,6 +758,75 @@ class _Shadowed extends StatelessWidget {
       );
 }
 
+/// This year's reading goal, as a progress ring.
+class _GoalCard extends StatelessWidget {
+  final VoidCallback onTap;
+  const _GoalCard({required this.onTap});
+  @override
+  Widget build(BuildContext context) {
+    final done = store.finishedThisYear, goal = store.goalThisYear;
+    final p = (done / goal).clamp(0.0, 1.0);
+    return Pressable(
+      onTap: onTap,
+      scale: .98,
+      child: CardBox(
+        pad: const EdgeInsets.all(12),
+        child: Row(children: [
+          SizedBox(
+            width: 46,
+            height: 46,
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: p),
+              duration: const Duration(milliseconds: 900),
+              curve: ease,
+              builder: (_, v, _) => CircularProgressIndicator(value: v, strokeWidth: 6, color: C.brown, backgroundColor: C.chip, strokeCap: StrokeCap.round),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('🎯 ${DateTime.now().year} reading goal', style: nu(12, FontWeight.w800, C.brown)),
+              Text(done >= goal ? 'Goal reached: $done of $goal books!' : '$done of $goal books', style: nu(15, FontWeight.w800)),
+              Text(done >= goal ? 'Everything from here is a bonus.' : '${goal - done} to go · ${(p * 100).round()}%',
+                  style: nu(12, FontWeight.w700, C.muted)),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+/// "How was it?" after finishing a book.
+void askRating(Item b) {
+  var r = b.rating;
+  openDialog((ctx) => StatefulBuilder(
+        builder: (ctx, set) => AppDialog(title: 'How was it?', children: [
+          Sub('You finished ${b.title}. Give it a rating?'),
+          Center(
+            child: StarRating(
+              value: r,
+              size: 40,
+              onChanged: (v) {
+                set(() => r = v);
+                b.rating = v;
+                store.changed();
+                if (v > 0) {
+                  Future.delayed(const Duration(milliseconds: 550), () {
+                    if (ctx.mounted && Navigator.of(ctx).canPop()) Navigator.of(ctx).pop();
+                    toast('Rated $v ★');
+                  });
+                }
+              },
+            ),
+          ),
+          const SizedBox(height: 6),
+        ], actions: const [
+          Btn('Skip'),
+        ]),
+      ));
+}
+
 /// "Continue reading" on Home: the PDF you opened last.
 class _ContinueCard extends StatelessWidget {
   final Item b;
@@ -855,6 +942,7 @@ void openBookView(Collection c, Item b) {
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(b.author, style: nu(14, FontWeight.w600, C.muted)),
+              if (b.rating > 0) ...[const SizedBox(height: 4), StarRating(value: b.rating, size: 18)],
               const SizedBox(height: 6),
               Text('${b.finished ? 'Finished' : 'Reading'} · ${c.emoji} ${c.name}', style: nu(13, FontWeight.w600, C.muted)),
               if (b.finishedAt != null) Text('Finished ${fmtDate(b.finishedAt!)}', style: nu(12, FontWeight.w600, C.muted)),

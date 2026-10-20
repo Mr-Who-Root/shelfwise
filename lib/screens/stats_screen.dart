@@ -7,6 +7,7 @@ import '../art.dart';
 import '../data/store.dart';
 import '../icons.dart';
 import '../services/share_image.dart';
+import '../services/sfx.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import '../widgets/dialogs.dart';
@@ -64,7 +65,26 @@ class _StatsScreenState extends State<StatsScreen> with TickerProviderStateMixin
           ListView(
             padding: EdgeInsets.fromLTRB(22, mq.padding.top + 26, 22, 110),
             children: [
-              const Padding(padding: EdgeInsets.only(right: 110), child: H1('Stats')),
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Expanded(child: H1('Stats')),
+              Semantics(
+                  button: true,
+                  label: 'Share your stats',
+                  child: Pressable(
+                    onTap: () => _shareStats(p),
+                    scale: .9,
+                    child: Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(color: C.softBrown, shape: BoxShape.circle),
+                      alignment: Alignment.center,
+                      child: SvgIcon(Ic.share, color: C.dark ? C.chipText : const Color(0xFF6D4A2B), size: 21),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const BellButton(),
+              ]),
               const SizedBox(height: 2),
               Text('Your reading at a glance', style: nu(14, FontWeight.w600, C.muted)),
               const SizedBox(height: 14),
@@ -84,6 +104,10 @@ class _StatsScreenState extends State<StatsScreen> with TickerProviderStateMixin
               ]),
               const SizedBox(height: 14),
               _rewindCard(p),
+              const H2('Reading time', pad: EdgeInsets.fromLTRB(0, 24, 0, 10)),
+              _timeCard(p),
+              H2('${DateTime.now().year} reading goal', pad: const EdgeInsets.fromLTRB(0, 24, 0, 10)),
+              _goalCard(),
               H2(barTitle, pad: const EdgeInsets.fromLTRB(0, 24, 0, 10)),
               CardBox(
                 child: AspectRatio(
@@ -144,29 +168,6 @@ class _StatsScreenState extends State<StatsScreen> with TickerProviderStateMixin
                 ),
               ),
             ],
-          ),
-          Positioned(
-            top: mq.padding.top + 22,
-            right: 20,
-            child: Row(children: [
-              Semantics(
-                button: true,
-                label: 'Share your stats',
-                child: Pressable(
-                  onTap: () => _shareStats(p),
-                  scale: .9,
-                  child: Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(color: C.softBrown, shape: BoxShape.circle),
-                    alignment: Alignment.center,
-                    child: SvgIcon(Ic.share, color: C.dark ? C.chipText : const Color(0xFF6D4A2B), size: 21),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              const BellButton(),
-            ]),
           ),
         ]);
       },
@@ -233,6 +234,119 @@ class _StatsScreenState extends State<StatsScreen> with TickerProviderStateMixin
     );
   }
 
+  Widget _timeCard(String p) {
+    final secs = store.readSecondsIn(p);
+    final mins = store.readMinutes(7);
+    final top = mins.fold(0, max);
+    const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    final today = DateTime.now().weekday;
+    return CardBox(
+      child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(secs < 60 ? '0 min' : fmtDuration(secs), style: nu(26, FontWeight.w800)),
+            Text(secs < 60 ? 'Open a book’s PDF or EPUB to start counting' : 'spent reading in Shelfwise',
+                style: nu(12.5, FontWeight.w700, C.muted, 1.3)),
+          ]),
+        ),
+        const SizedBox(width: 8),
+        Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          for (var i = 0; i < 7; i++)
+            Padding(
+              padding: const EdgeInsets.only(left: 5),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0, end: top == 0 ? 0 : mins[i] / top),
+                  duration: Duration(milliseconds: 600 + i * 60),
+                  curve: ease,
+                  builder: (_, v, _) => Container(
+                    width: 12,
+                    height: 4 + 46 * v,
+                    decoration: BoxDecoration(color: i == 6 ? C.brown : C.brown.withValues(alpha: .45), borderRadius: BorderRadius.circular(4)),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(days[(today - 7 + i) % 7], style: nu(10, FontWeight.w800, C.muted)),
+              ]),
+            ),
+        ]),
+      ]),
+    );
+  }
+
+  Widget _goalCard() {
+    final goal = store.goalThisYear, done = store.finishedThisYear;
+    final p = goal == 0 ? 0.0 : (done / goal).clamp(0.0, 1.0);
+    return Pressable(
+      onTap: _setGoal,
+      scale: .98,
+      child: CardBox(
+        child: Row(children: [
+          SizedBox(
+            width: 64,
+            height: 64,
+            child: Stack(alignment: Alignment.center, children: [
+              Positioned.fill(
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0, end: p),
+                  duration: const Duration(milliseconds: 1000),
+                  curve: ease,
+                  builder: (_, v, _) => CircularProgressIndicator(value: v, strokeWidth: 8, color: C.brown, backgroundColor: C.chip, strokeCap: StrokeCap.round),
+                ),
+              ),
+              Text(goal == 0 ? '🎯' : '${(p * 100).round()}%', style: nu(goal == 0 ? 22 : 13, FontWeight.w800)),
+            ]),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(goal == 0 ? 'Set a goal for ${DateTime.now().year}' : '$done of $goal books', style: nu(17, FontWeight.w800)),
+              Text(
+                goal == 0
+                    ? 'How many books do you want to finish this year?'
+                    : done >= goal
+                        ? 'Goal reached! Tap to raise the bar.'
+                        : '${goal - done} to go. Tap to change the goal.',
+                style: nu(12.5, FontWeight.w700, C.muted, 1.3),
+              ),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  void _setGoal() {
+    final t = TextEditingController(text: store.goalThisYear == 0 ? '' : '${store.goalThisYear}');
+    openDialog((ctx) => StatefulBuilder(
+          builder: (ctx, set) => AppDialog(title: '${DateTime.now().year} reading goal', children: [
+            const Sub('Books you’d like to finish this year. Finished books count automatically.'),
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              for (final n in [6, 12, 24, 52])
+                PopChip('$n', on: t.text == '$n', fontSize: 14, pad: const EdgeInsets.symmetric(horizontal: 16, vertical: 9), onTap: () => set(() => t.text = '$n')),
+            ]),
+            const SizedBox(height: 8),
+            AppInput(t, 'Or type a number', maxLength: 4, type: TextInputType.number, onChanged: (_) => set(() {})),
+          ], actions: [
+            if (store.goalThisYear > 0)
+              Btn('Remove', kind: Kind.dng, onTap: () {
+                store.setGoal(0);
+                toast('Goal removed');
+                return true;
+              }),
+            const Btn('Cancel'),
+            Btn('Save', kind: Kind.pri, onTap: () {
+              final n = int.tryParse(t.text.trim()) ?? 0;
+              if (n <= 0) return false;
+              store.setGoal(n);
+              Sfx.play('pop');
+              toast('Goal set: $n books in ${DateTime.now().year}');
+              return true;
+            }),
+          ]),
+        ));
+  }
+
   void _shareStats(String p) {
     final key = GlobalKey();
     final read = store.finishedIn(p).length, added = store.addedIn(p).length;
@@ -248,7 +362,9 @@ class _StatsScreenState extends State<StatsScreen> with TickerProviderStateMixin
                   ('📚', read, 'books finished'),
                   ('➕', p == 'all' ? store.totalBooks : added, p == 'all' ? 'on my shelves' : 'books added'),
                   ('✅', store.todosDoneIn(p), 'to-dos done'),
-                  ('🔥', store.streak(p), 'day streak'),
+                  store.readSecondsIn(p) >= 3600
+                      ? ('⏱️', store.readSecondsIn(p) ~/ 3600, 'hours reading')
+                      : ('🔥', store.streak(p), 'day streak'),
                 ],
                 bars: store.barsFor(p),
               ),

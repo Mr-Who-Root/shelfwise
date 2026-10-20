@@ -58,8 +58,7 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
   String? _pressed;
   Item? _drag;
   double _dragX = 0, _grab = 0, _finger = 0, _vx = 0;
-  Item? _target;
-  bool _before = true;
+  int? _insertAt; // where the dragged item would land; the others slide apart to make room
   bool _overflow = false;
   final Set<String> _fresh = {};
 
@@ -100,11 +99,19 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
     if (o != _overflow) setState(() => _overflow = o);
   }
 
-  (List<_Slot>, double) _layout() {
+  /// The items in display order: while dragging, the dragged one sits at [_insertAt].
+  List<Item> get _ordered {
+    final d = _drag, at = _insertAt;
+    if (d == null || at == null) return widget.items;
+    final others = widget.items.where((x) => x.id != d.id).toList();
+    return others..insert(at.clamp(0, others.length), d);
+  }
+
+  (List<_Slot>, double) _layout([List<Item>? items]) {
     final w = _w, h = _h;
     final out = <_Slot>[];
     var x = 22.0, prevMr = 0.0;
-    for (final (i, it) in widget.items.indexed) {
+    for (final (i, it) in (items ?? _ordered).indexed) {
       final g = it.isDecor;
       // decorations stand behind the glass like the books, drawn tall enough to peek over it
       final iw = g ? w * .95 : w;
@@ -143,37 +150,32 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
       _grab = d.localPosition.dx;
       _dragX = s.x;
       _finger = s.x + _grab;
-      _target = null;
+      _insertAt = widget.items.indexOf(it);
     });
     _auto.start();
   }
 
-  void _dragMove(LongPressMoveUpdateDetails d, List<_Slot> slots) {
+  void _dragMove(LongPressMoveUpdateDetails d) {
     final box = _stackKey.currentContext?.findRenderObject() as RenderBox?;
     final view = _viewKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null || view == null) return;
     _finger = box.globalToLocal(d.globalPosition).dx;
     final vx = view.globalToLocal(d.globalPosition).dx;
     _vx = vx < 36 ? -9 : (vx > view.size.width - 36 ? 9 : 0);
-    _place(slots);
+    _place();
   }
 
-  void _place(List<_Slot> slots) {
+  /// Picks the gap from the other items' resting positions (not the animated ones), so it never jitters.
+  void _place() {
+    final d = _drag;
+    if (d == null) return;
     _dragX = _finger - _grab;
-    _Slot? best;
-    var bd = double.infinity;
-    for (final s in slots) {
-      if (s.it == _drag) continue;
-      final dd = (_finger - s.mid).abs();
-      if (dd < bd) {
-        bd = dd;
-        best = s;
-      }
-    }
-    setState(() {
-      _target = best?.it;
-      _before = best == null ? true : _finger < best.mid;
-    });
+    final others = widget.items.where((x) => x.id != d.id).toList();
+    final (slots, _) = _layout(others);
+    final centre = _dragX + (d.isDecor ? _w * .95 : _w) / 2;
+    final at = slots.where((s) => s.mid < centre).length;
+    if (at != _insertAt) Buzz.tick();
+    setState(() => _insertAt = at);
   }
 
   void _autoScroll(Duration _) {
@@ -184,28 +186,34 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
     if (delta == 0) return;
     _sc.jumpTo(next);
     _finger += delta;
-    _place(_layout().$1);
+    _place();
   }
 
   void _dragEnd() {
     _auto.stop();
-    final d = _drag, t = _target;
+    final d = _drag, at = _insertAt;
+    Item? anchor;
+    var before = true;
+    if (d != null && at != null && at != widget.items.indexOf(d)) {
+      final others = widget.items.where((x) => x.id != d.id).toList();
+      if (at < others.length) {
+        anchor = others[at];
+      } else if (others.isNotEmpty) {
+        anchor = others.last;
+        before = false;
+      }
+    }
     setState(() {
       _drag = null;
-      _target = null;
+      _insertAt = null;
       _vx = 0;
     });
     if (d == null) return;
     Sfx.play('drop');
     Buzz.light();
-    if (t != null) {
-      final a = widget.col.items;
-      final from = a.indexOf(d), to = a.indexOf(t);
-      final moved = !(_before ? from == to - 1 : from == to + 1);
-      if (moved) {
-        store.reorder(widget.col, d, t, before: _before);
-        toast(d.isDecor ? 'Decoration moved' : 'Book moved');
-      }
+    if (anchor != null) {
+      store.reorder(widget.col, d, anchor, before: before);
+      toast(d.isDecor ? 'Decoration moved' : 'Book moved');
     }
   }
 
@@ -332,8 +340,9 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
     final Matrix4 m;
     if (dragging) {
       m = Matrix4.identity()
-        ..translateByDouble(0, -10, 0, 1)
-        ..scaleByDouble(1.1, 1.1, 1, 1);
+        ..translateByDouble(0, -14, 0, 1)
+        ..rotateZ(-3 * pi / 180)
+        ..scaleByDouble(1.12, 1.12, 1, 1);
     } else if (lifted) {
       m = Matrix4.identity()
         ..translateByDouble(0, -16, 0, 1)
@@ -342,7 +351,6 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
     } else {
       m = Matrix4.identity()..translateByDouble(dx, 0, 0, 1);
     }
-    final isTarget = _target?.id == it.id;
     final shadows = <BoxShadow>[
       if (!it.isDecor && dragging) const BoxShadow(color: Color.fromRGBO(0, 0, 0, .4), offset: Offset(0, 16), blurRadius: 26),
       if (!it.isDecor && lifted && !dragging) ...const [
@@ -350,7 +358,6 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
         BoxShadow(color: Color.fromRGBO(0, 0, 0, .2), offset: Offset(0, 4), blurRadius: 8),
       ],
       if (!it.isDecor && !lifted && !dragging) const BoxShadow(color: Color.fromRGBO(0, 0, 0, .28), offset: Offset(0, 2), blurRadius: 6),
-      if (isTarget) BoxShadow(color: C.brown, offset: Offset(_before ? -5 : 5, 0)),
     ];
     final dur = dragging ? Duration.zero : const Duration(milliseconds: 380);
     Widget face = it.isDecor
@@ -421,7 +428,7 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
               () => LongPressGestureRecognizer(duration: const Duration(milliseconds: 320)),
               (l) => l
                 ..onLongPressStart = ((d) => _dragStart(it, s, d))
-                ..onLongPressMoveUpdate = ((d) => _dragMove(d, _layout().$1))
+                ..onLongPressMoveUpdate = _dragMove
                 ..onLongPressEnd = ((_) => _dragEnd())
                 ..onLongPressCancel = (() {
                   if (_drag != null) _dragEnd();

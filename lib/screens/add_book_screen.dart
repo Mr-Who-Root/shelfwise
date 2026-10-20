@@ -6,10 +6,13 @@ import 'package:image_picker/image_picker.dart';
 import '../data/models.dart';
 import '../data/store.dart';
 import '../services/book_files.dart';
+import '../services/lookup.dart';
 import '../services/sfx.dart';
 import '../theme.dart';
 import '../widgets/book_cover.dart';
 import '../widgets/common.dart';
+import '../widgets/stars.dart';
+import 'scan_screen.dart';
 
 Route<void> addBookRoute({Collection? col, bool sub = false}) => PageRouteBuilder(
       transitionDuration: const Duration(milliseconds: 420),
@@ -47,6 +50,9 @@ class _AddBookScreenState extends State<AddBookScreen> with SingleTickerProvider
   String _err = '';
   PickedCopy? _copy;
   bool _saved = false;
+  int _rating = 0;
+  String _isbn = '';
+  bool _looking = false;
 
   @override
   void initState() {
@@ -87,12 +93,48 @@ class _AddBookScreenState extends State<AddBookScreen> with SingleTickerProvider
       final f = store.bookFile(old.file);
       if (f.existsSync()) f.deleteSync();
     }
+    String? cover;
+    if (_cover == null && c.cover != null) cover = await store.saveImage(c.cover!);
+    if (!mounted) return;
     setState(() {
       _copy = c;
       if (_title.text.trim().isEmpty) _title.text = c.suggestedTitle;
+      if (_author.text.trim().isEmpty && c.author.isNotEmpty) _author.text = c.author;
+      if (_desc.text.trim().isEmpty && c.desc.isNotEmpty) _desc.text = c.desc.length > 240 ? '${c.desc.substring(0, 237)}…' : c.desc;
+      _cover ??= cover;
     });
     Sfx.play('pop');
-    toast('PDF attached · ${plural(c.pages, 'page')}');
+    toast(c.isEpub ? 'EPUB attached' : 'PDF attached · ${plural(c.pages, 'page')}');
+  }
+
+  Future<void> _scan() async {
+    final isbn = await scanIsbn();
+    if (isbn == null || !mounted) return;
+    setState(() {
+      _looking = true;
+      _isbn = isbn;
+      _err = '';
+    });
+    final info = await lookupIsbn(isbn);
+    if (!mounted) return;
+    if (info == null) {
+      setState(() => _looking = false);
+      Sfx.play('knock');
+      toast('Couldn’t find ISBN $isbn. Fill it in by hand.');
+      return;
+    }
+    final cover = info.cover == null ? null : await store.saveImage(info.cover!);
+    if (!mounted) return;
+    setState(() {
+      _looking = false;
+      _title.text = info.title;
+      if (info.author.isNotEmpty) _author.text = info.author;
+      if (info.desc.isNotEmpty) _desc.text = info.desc;
+      if (cover != null) _cover = cover;
+    });
+    Sfx.play('pop');
+    Buzz.light();
+    toast('Found “${info.title}”');
   }
 
   void _fail(String m) {
@@ -122,7 +164,17 @@ class _AddBookScreenState extends State<AddBookScreen> with SingleTickerProvider
     final bool? sub = widget.col == c && widget.sub && store.bookCount(c, true) < shelfMax ? true : store.placeFor(c);
     if (sub == null) return _fail('That collection is full (20 books). Pick another shelf.');
     final gone = store.addBook(
-        c, Item(title: t, author: a, desc: _desc.text.trim(), status: _status, cover: _cover, file: _copy?.file, pages: _copy?.pages ?? 0),
+        c,
+        Item(
+            title: t,
+            author: a,
+            desc: _desc.text.trim(),
+            status: _status,
+            cover: _cover,
+            file: _copy?.file,
+            pages: _copy?.pages ?? 0,
+            rating: _rating,
+            isbn: _isbn),
         sub: sub);
     _saved = true;
     Sfx.play('drop');
@@ -163,6 +215,13 @@ class _AddBookScreenState extends State<AddBookScreen> with SingleTickerProvider
               const H1('Add a book'),
               const SizedBox(height: 2),
               Text('It lands on your shelf the moment you tap Add.', style: nu(14, FontWeight.w600, C.muted)),
+              const SizedBox(height: 14),
+              Pill(_looking ? 'Looking it up…' : 'Scan the barcode to fill this in',
+                  kind: Kind.outline,
+                  expand: true,
+                  icon: Icon(Icons.qr_code_scanner_rounded, size: 19, color: C.brown),
+                  pad: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+                  onTap: _looking ? null : _scan),
               const SizedBox(height: 18),
               // live preview
               Center(
@@ -184,7 +243,9 @@ class _AddBookScreenState extends State<AddBookScreen> with SingleTickerProvider
                         ),
                         child: AnimatedSwitcher(
                           duration: const Duration(milliseconds: 300),
-                          child: KeyedSubtree(
+                          child: _looking
+                              ? const _Looking(key: ValueKey('looking'))
+                              : KeyedSubtree(
                             key: ValueKey('${pal.hashCode}|$_cover'),
                             child: CoverFace(
                               title: title.isEmpty ? 'Your next favourite' : title,
@@ -236,7 +297,7 @@ class _AddBookScreenState extends State<AddBookScreen> with SingleTickerProvider
                 duration: const Duration(milliseconds: 280),
                 transitionBuilder: (c, a) => FadeTransition(opacity: a, child: SizeTransition(sizeFactor: a, child: c)),
                 child: _copy == null
-                    ? Pill('Attach a PDF from your phone',
+                    ? Pill('Attach a PDF or EPUB from your phone',
                         key: const ValueKey('none'),
                         kind: Kind.outline,
                         expand: true,
@@ -248,12 +309,13 @@ class _AddBookScreenState extends State<AddBookScreen> with SingleTickerProvider
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(color: C.card, borderRadius: BorderRadius.circular(14), border: Border.all(color: C.line)),
                         child: Row(children: [
-                          const Text('📄', style: TextStyle(fontSize: 26)),
+                          Text(_copy!.isEpub ? '📘' : '📄', style: const TextStyle(fontSize: 26)),
                           const SizedBox(width: 10),
                           Expanded(
                             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Text('PDF attached · you can read it in Shelfwise', style: nu(14, FontWeight.w800)),
-                              Text('${plural(_copy!.pages, 'page')} · ${fmtSize(_copy!.bytes)}', style: nu(12, FontWeight.w600, C.muted)),
+                              Text('${_copy!.isEpub ? 'EPUB' : 'PDF'} attached · you can read it in Shelfwise', style: nu(14, FontWeight.w800)),
+                              Text(_copy!.isEpub ? fmtSize(_copy!.bytes) : '${plural(_copy!.pages, 'page')} · ${fmtSize(_copy!.bytes)}',
+                                  style: nu(12, FontWeight.w600, C.muted)),
                             ]),
                           ),
                           Pressable(
@@ -277,6 +339,8 @@ class _AddBookScreenState extends State<AddBookScreen> with SingleTickerProvider
                 const SizedBox(width: 10),
                 PopChip('✅ Finished', on: _status == 'f', onTap: () => setState(() => _status = 'f')),
               ]),
+              _label('Your rating (optional)'),
+              StarRating(value: _rating, size: 32, onChanged: (v) => setState(() => _rating = v)),
               _label('Shelf'),
               const SizedBox(height: 6),
               Wrap(spacing: 8, runSpacing: 8, children: [
@@ -336,7 +400,7 @@ class _AddBookScreenState extends State<AddBookScreen> with SingleTickerProvider
             scale: .98,
             child: Container(
               height: 56,
-              decoration: BoxDecoration(color: C.black, borderRadius: BorderRadius.circular(6)),
+              decoration: BoxDecoration(color: C.dark ? C.brown : C.black, borderRadius: BorderRadius.circular(6)),
               alignment: Alignment.center,
               child: const Row(mainAxisSize: MainAxisSize.min, children: [
                 Text('Add to my shelf', style: TextStyle(fontFamily: F.hand, fontSize: 25, fontWeight: FontWeight.w500, color: Colors.white)),
@@ -351,4 +415,43 @@ class _AddBookScreenState extends State<AddBookScreen> with SingleTickerProvider
       ]),
     );
   }
+}
+
+/// Shimmering placeholder cover while an ISBN is looked up.
+class _Looking extends StatefulWidget {
+  const _Looking({super.key});
+  @override
+  State<_Looking> createState() => _LookingState();
+}
+
+class _LookingState extends State<_Looking> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 1100))..repeat();
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: _c,
+        builder: (_, _) => Container(
+          width: 124,
+          height: 176,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(6),
+            gradient: LinearGradient(
+              begin: Alignment(-1.5 + _c.value * 3, -.3),
+              end: Alignment(-.5 + _c.value * 3, .3),
+              colors: [C.chip, C.card, C.chip],
+            ),
+          ),
+          alignment: Alignment.center,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.travel_explore_rounded, color: C.brown, size: 30),
+            const SizedBox(height: 8),
+            Text('Looking up…', style: nu(12, FontWeight.w800, C.chipText)),
+          ]),
+        ),
+      );
 }

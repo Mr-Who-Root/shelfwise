@@ -34,8 +34,8 @@ class _ShellState extends State<Shell> {
 
 
   Widget _page() => switch (_tab) {
-        0 => LibraryScreen(key: const ValueKey('home'), home: true, onProfile: () => go(5), onTodo: () => go(2)),
-        1 => LibraryScreen(key: const ValueKey('lib'), home: false, onProfile: () => go(5), onTodo: () => go(2)),
+        0 => LibraryScreen(key: const ValueKey('home'), home: true, onProfile: () => go(5), onTodo: () => go(2), onStats: () => go(3)),
+        1 => LibraryScreen(key: const ValueKey('lib'), home: false, onProfile: () => go(5), onTodo: () => go(2), onStats: () => go(3)),
         2 => const TodoScreen(key: ValueKey('todo')),
         3 => const StatsScreen(key: ValueKey('stats')),
         4 => SettingsScreen(key: const ValueKey('settings'), onProfile: () => go(5), onReplay: () => Navigator.of(context).push(introRoute())),
@@ -53,6 +53,14 @@ class _ShellState extends State<Shell> {
         backgroundColor: C.bg,
         resizeToAvoidBottomInset: false,
         body: Stack(children: [
+          if (store.settings.pattern != 'none')
+            Positioned.fill(
+              child: IgnorePointer(
+                child: RepaintBoundary(
+                  child: CustomPaint(painter: PatternPainter(store.settings.pattern, C.ink.withValues(alpha: C.dark ? .07 : .06))),
+                ),
+              ),
+            ),
           Positioned.fill(
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 280),

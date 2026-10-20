@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:archive/archive_io.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -44,7 +45,14 @@ class BackupFile {
   final Map<String, String> files;
   final DateTime? exportedAt;
   final int books, todos, shelves;
-  BackupFile(this.data, this.files, this.exportedAt, this.books, this.todos, this.shelves);
+
+  /// Book copies (PDF/EPUB) carried by a zip backup, by file name.
+  final Map<String, ArchiveFile> copies;
+  final InputFileStream? _stream;
+  BackupFile(this.data, this.files, this.exportedAt, this.books, this.todos, this.shelves, {this.copies = const {}, InputFileStream? stream})
+      : _stream = stream; // ignore: prefer_initializing_formals
+
+  Future<void> close() async => _stream?.close();
 }
 
 /// Everything the app knows, kept in one JSON file on the phone.
@@ -65,6 +73,10 @@ class AppStore extends ChangeNotifier {
   Settings settings = Settings();
   Set<String> claimed = {};
   int? lastBackup;
+  Map<String, int> readLog = {}; // 'yyyy-mm-dd' → seconds spent reading
+  int goal = 0; // books to finish this year (0 = no goal)
+  int goalYear = 0;
+  int lastUpdateCheck = 0;
 
   Timer? _saveTimer;
 
@@ -97,6 +109,10 @@ class AppStore extends ChangeNotifier {
         'settings': settings.toJson(),
         'claimed': claimed.toList(),
         if (lastBackup != null) 'lastBackup': lastBackup,
+        if (readLog.isNotEmpty) 'readLog': readLog,
+        if (goal > 0) 'goal': goal,
+        if (goal > 0) 'goalYear': goalYear,
+        if (lastUpdateCheck > 0) 'lastUpdateCheck': lastUpdateCheck,
       };
 
   void fromJson(Map<String, dynamic> j) {
@@ -109,6 +125,10 @@ class AppStore extends ChangeNotifier {
     settings = Settings.fromJson(((j['settings'] ?? const {}) as Map).cast<String, dynamic>());
     claimed = ((j['claimed'] ?? const []) as List).cast<String>().toSet();
     lastBackup = (j['lastBackup'] as num?)?.toInt();
+    readLog = ((j['readLog'] ?? const {}) as Map).map((k, v) => MapEntry('$k', (v as num).toInt()));
+    goal = (j['goal'] as num?)?.toInt() ?? 0;
+    goalYear = (j['goalYear'] as num?)?.toInt() ?? 0;
+    lastUpdateCheck = (j['lastUpdateCheck'] as num?)?.toInt() ?? 0;
   }
 
   /// Call after any mutation: refreshes listeners and writes to disk shortly after.
@@ -374,6 +394,44 @@ class AppStore extends ChangeNotifier {
     return out;
   }
 
+  // ---------- reading time & goal ----------
+
+  static String dayKey(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  /// Records [seconds] of reading in [b]'s copy. Saved with the next [changed].
+  void addReading(Item b, int seconds) {
+    if (seconds <= 0) return;
+    b.readMs += seconds * 1000;
+    final k = dayKey(DateTime.now());
+    readLog[k] = (readLog[k] ?? 0) + seconds;
+  }
+
+  int readSecondsIn(String p) {
+    final from = dayKey(periodStart(p));
+    return readLog.entries.where((e) => e.key.compareTo(from) >= 0).fold(0, (a, e) => a + e.value);
+  }
+
+  /// Minutes read on each of the last [days] days (oldest first).
+  List<int> readMinutes(int days) {
+    final n = DateTime.now();
+    return List.generate(days, (i) => ((readLog[dayKey(DateTime(n.year, n.month, n.day - (days - 1 - i)))] ?? 0) / 60).round());
+  }
+
+  int get goalThisYear => goalYear == DateTime.now().year ? goal : 0;
+  int get finishedThisYear => finishedIn('year').length;
+
+  void setGoal(int n) {
+    goal = n;
+    goalYear = DateTime.now().year;
+    changed();
+  }
+
+  /// The best-rated finished book in the period (4 stars or more).
+  Item? topRated(String p) {
+    final l = finishedIn(p).where((b) => b.rating >= 4).toList()..sort((a, b) => b.rating.compareTo(a.rating));
+    return l.isEmpty ? null : l.first;
+  }
+
   // ---------- periods (stats filter + Rewind) ----------
 
   static DateTime periodStart(String p) {
@@ -449,6 +507,12 @@ class AppStore extends ChangeNotifier {
     }
     for (final t in todos) {
       add(t.doneAt);
+    }
+    final from = dayKey(periodStart(p));
+    for (final e in readLog.entries) {
+      if (e.key.compareTo(from) < 0 || e.value < 60) continue;
+      final parts = e.key.split('-').map(int.parse).toList();
+      days.add(DateTime.utc(parts[0], parts[1], parts[2]).millisecondsSinceEpoch ~/ 86400000);
     }
     var best = 0;
     for (final d in days) {
@@ -550,7 +614,15 @@ class AppStore extends ChangeNotifier {
 
   // ---------- backup ----------
 
-  Future<File> exportBackup() async {
+  Iterable<File> get _copies =>
+      {for (final b in allBooks) if (b.file != null) b.file!}.map(bookFile).where((f) => f.existsSync());
+
+  /// Total size of the PDF/EPUB copies a full backup would carry.
+  int get copiesBytes => _copies.fold(0, (a, f) => a + f.lengthSync());
+
+  /// Writes a backup to a temporary file: plain JSON, or a zip that also carries
+  /// the book copies when [withCopies] is set and there are any.
+  Future<File> exportBackup({bool withCopies = false}) async {
     final files = <String, String>{};
     for (final name in _referencedImages()) {
       final f = imageFile(name);
@@ -566,15 +638,49 @@ class AppStore extends ChangeNotifier {
     });
     final tmp = await getTemporaryDirectory();
     String two(int n) => n.toString().padLeft(2, '0');
-    final f = File('${tmp.path}/shelfwise-backup-${now.year}${two(now.month)}${two(now.day)}-${two(now.hour)}${two(now.minute)}.json');
-    await f.writeAsString(body, flush: true);
+    final base = '${tmp.path}/shelfwise-backup-${now.year}${two(now.month)}${two(now.day)}-${two(now.hour)}${two(now.minute)}';
+    final copies = withCopies ? _copies.toList() : const <File>[];
+    late final File out;
+    if (copies.isEmpty) {
+      out = File('$base.json');
+      await out.writeAsString(body, flush: true);
+    } else {
+      out = await writeBackupZip(body, copies, '$base.zip');
+    }
     lastBackup = now.millisecondsSinceEpoch;
     changed();
-    return f;
+    return out;
   }
 
-  /// Parses a backup; throws [FormatException] with a friendly message when it isn't one.
-  BackupFile parseBackup(Uint8List bytes) {
+  /// Reads a backup file (JSON or zip). Throws [FormatException] with a friendly message when it isn't one.
+  BackupFile parseBackupFile(String path) {
+    final f = File(path);
+    final head = f.openSync()..setPositionSync(0);
+    final magic = head.readSync(2);
+    head.closeSync();
+    if (magic.length == 2 && magic[0] == 0x50 && magic[1] == 0x4B) {
+      final stream = InputFileStream(path);
+      try {
+        final arc = ZipDecoder().decodeStream(stream);
+        final json = arc.findFile('backup.json')?.readBytes();
+        if (json == null) throw const FormatException('That file isn’t a Shelfwise backup.');
+        final copies = {
+          for (final e in arc.files)
+            if (e.isFile && e.name.startsWith('books/') && !e.name.contains('..')) e.name.substring(6): e,
+        };
+        return parseBackup(json, copies: copies, stream: stream);
+      } on FormatException {
+        stream.close();
+        rethrow;
+      } catch (_) {
+        stream.close();
+        throw const FormatException('That file isn’t a Shelfwise backup.');
+      }
+    }
+    return parseBackup(f.readAsBytesSync());
+  }
+
+  BackupFile parseBackup(Uint8List bytes, {Map<String, ArchiveFile> copies = const {}, InputFileStream? stream}) {
     final Object? j;
     try {
       j = jsonDecode(utf8.decode(bytes));
@@ -591,13 +697,23 @@ class AppStore extends ChangeNotifier {
     for (final x in c) {
       books += (((x as Map)['items'] ?? const []) as List).where((i) => (i as Map)['g'] == null).length;
     }
-    return BackupFile(data, files, DateTime.tryParse('${j['exportedAt']}'), books, ((data['todos'] ?? const []) as List).length, c.length);
+    return BackupFile(data, files, DateTime.tryParse('${j['exportedAt']}'), books, ((data['todos'] ?? const []) as List).length, c.length,
+        copies: copies, stream: stream);
   }
 
   Future<void> restore(BackupFile b) async {
-    for (final e in b.files.entries) {
-      if (e.key.contains('/') || e.key.contains('..')) continue;
-      await imageFile(e.key).writeAsBytes(base64Decode(e.value), flush: true);
+    try {
+      for (final e in b.files.entries) {
+        if (e.key.contains('/') || e.key.contains('..')) continue;
+        await imageFile(e.key).writeAsBytes(base64Decode(e.value), flush: true);
+      }
+      for (final e in b.copies.entries) {
+        if (e.key.contains('/')) continue;
+        final bytes = e.value.readBytes();
+        if (bytes != null) await bookFile(e.key).writeAsBytes(bytes, flush: true);
+      }
+    } finally {
+      await b.close();
     }
     final keepSettings = settings;
     fromJson(b.data);
@@ -610,3 +726,17 @@ class AppStore extends ChangeNotifier {
 }
 
 AppStore get store => AppStore.I;
+
+/// Writes a zip backup: `backup.json` plus each book copy under `books/` (stored, not compressed).
+Future<File> writeBackupZip(String json, List<File> copies, String path) async {
+  final jf = File('${File(path).parent.path}/backup.json');
+  await jf.writeAsString(json, flush: true);
+  final zip = ZipFileEncoder()..create(path);
+  await zip.addFile(jf, 'backup.json');
+  for (final f in copies) {
+    await zip.addFile(f, 'books/${f.uri.pathSegments.last}', 0);
+  }
+  await zip.close();
+  await jf.delete();
+  return File(path);
+}

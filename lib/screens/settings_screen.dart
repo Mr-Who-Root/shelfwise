@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -7,7 +9,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../art.dart';
 import '../data/store.dart';
 import '../look.dart';
+import '../services/book_files.dart';
 import '../services/notify.dart';
+import '../services/updater.dart';
+import '../widgets/update_card.dart';
 import '../services/sfx.dart';
 import '../theme.dart';
 import '../version.dart';
@@ -25,7 +30,26 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  bool _busy = false, _about = false;
+  bool _busy = false, _about = false, _checking = false;
+
+  Future<void> _checkNow() async {
+    if (_checking) return;
+    setState(() => _checking = true);
+    try {
+      final r = await Updater.check(force: true);
+      if (!mounted) return;
+      if (r == null) {
+        toast('You’re on the latest version ($appVersion)');
+      } else {
+        store.settings.skipVersion = '';
+        openUpdate(r);
+      }
+    } catch (_) {
+      toast('Couldn’t reach GitHub. Check your connection.');
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
+  }
 
   void _set(void Function() f, {bool look = false}) {
     f();
@@ -38,10 +62,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _busy = true);
     final box = context.findRenderObject() as RenderBox?;
     try {
-      final f = await store.exportBackup();
+      final f = await store.exportBackup(withCopies: store.settings.backupFiles);
       Sfx.play('swoosh');
       await SharePlus.instance.share(ShareParams(
-        files: [XFile(f.path, mimeType: 'application/json')],
+        files: [XFile(f.path, mimeType: f.path.endsWith('.zip') ? 'application/zip' : 'application/json')],
         subject: 'Shelfwise backup',
         text: 'My Shelfwise backup: ${plural(store.totalBooks, 'book')}, ${plural(store.todos.length, 'to-do')}. '
             'Open Shelfwise → Settings → Import backup to restore it.',
@@ -66,7 +90,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (f == null) return;
     final BackupFile b;
     try {
-      b = store.parseBackup(await f.readAsBytes());
+      final path = f.path;
+      b = path != null && File(path).existsSync() ? store.parseBackupFile(path) : store.parseBackup(await f.readAsBytes());
     } on FormatException catch (e) {
       Sfx.play('knock');
       toast(e.message);
@@ -78,13 +103,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final when = b.exportedAt == null ? '' : ', saved ${fmtDate(b.exportedAt!.millisecondsSinceEpoch)}';
     final ok = await confirm(
       'Restore this backup?',
-      'It has ${plural(b.books, 'book')} on ${plural(b.shelves, 'shelf', 'shelves')} and ${plural(b.todos, 'to-do')}$when. '
-          'It replaces everything on this phone right now. PDF copies aren’t inside backups, so re-attach them if needed.',
+      'It has ${plural(b.books, 'book')} on ${plural(b.shelves, 'shelf', 'shelves')} and ${plural(b.todos, 'to-do')}$when'
+          '${b.copies.isEmpty ? '' : ', plus ${plural(b.copies.length, 'book file')}'}. '
+          'It replaces everything on this phone right now.',
       yes: 'Restore',
       no: 'Cancel',
       kind: Kind.pri,
     );
-    if (!ok) return;
+    if (!ok) {
+      await b.close();
+      return;
+    }
     await store.restore(b);
     await Notifier.sync();
     Sfx.play('reset');
@@ -119,6 +148,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   for (final (k, l) in const [('light', 'Light'), ('dark', 'Dark'), ('system', 'System')]) ...[
                     Expanded(child: _ThemeTile(kind: k, label: l, on: s.theme == k, onTap: () => _set(() => s.theme = k, look: true))),
                     if (k != 'system') const SizedBox(width: 10),
+                  ],
+                ]),
+                const SizedBox(height: 18),
+                _label('Background'),
+                LayoutBuilder(
+                  builder: (_, c) => Wrap(spacing: 10, runSpacing: 10, children: [
+                    for (final f in bgFamilies)
+                      _BgTile(family: f, width: (c.maxWidth - 20) / 3, on: s.bg == f.key, onTap: () => _set(() => s.bg = f.key, look: true)),
+                  ]),
+                ),
+                const SizedBox(height: 14),
+                _label('Pattern'),
+                Row(children: [
+                  for (final (k, l) in bgPatterns) ...[
+                    Expanded(child: _PatternTile(kind: k, label: l, on: s.pattern == k, onTap: () => _set(() => s.pattern = k, look: true))),
+                    if (k != bgPatterns.last.$1) const SizedBox(width: 8),
                   ],
                 ]),
                 const SizedBox(height: 18),
@@ -165,11 +210,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _item('📤', 'Share backup',
                   sub: _busy ? 'Saving…' : (store.lastBackup == null ? 'Send a backup file to Drive, email or chat' : 'Last saved ${fmtDate(store.lastBackup!)}'),
                   onTap: _share),
+              _item('📚', 'Include book files',
+                  sub: store.copiesBytes == 0
+                      ? 'PDF and EPUB copies, when you attach some'
+                      : 'Adds ${fmtSize(store.copiesBytes)} of PDF/EPUB copies',
+                  trailing: AppSwitch(value: s.backupFiles, onChanged: (v) {
+                    _set(() => s.backupFiles = v);
+                    toast(v ? 'Backups will carry your book files' : 'Backups will skip book files');
+                  })),
               _item('📥', 'Import backup', sub: 'Restore from a Shelfwise backup file', onTap: _import),
             ])),
             Padding(
               padding: const EdgeInsets.fromLTRB(6, 8, 6, 0),
-              child: Text('Everything stays on this phone. Backups hold your shelves, to-dos, covers and progress. PDF copies aren’t included.',
+              child: Text(
+                  'Everything stays on this phone. Backups hold your shelves, to-dos, covers, notes and progress'
+                  '${s.backupFiles ? ', plus your book files (as a .zip).' : '. Turn on “Include book files” to carry your PDFs and EPUBs too.'}',
                   style: nu(12, FontWeight.w600, C.muted, 1.4)),
             ),
             sec(const H2('Alerts')),
@@ -195,6 +250,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _set(() => s.haptics = v);
                 Buzz.light();
               })),
+            ])),
+            sec(const H2('Updates')),
+            sec(_card([
+              _item('⬆️', 'Check for updates', sub: _checking ? 'Checking…' : 'You have version $appVersion', onTap: _checkNow),
+              _item('🔄', 'Check automatically', sub: 'Once a day, quietly', trailing: AppSwitch(value: s.autoUpdate, onChanged: (v) => _set(() => s.autoUpdate = v))),
             ])),
             sec(const H2('More')),
             sec(_card([
@@ -290,6 +350,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Column(children: [
           Text(
             'A cozy home for the books you love and the reading plans you make. No account, no ads. '
+            'The internet is only used to check for updates and to look up books you scan. '
             'Use Share backup to keep a copy safe or to move to a new phone.',
             textAlign: TextAlign.center,
             style: nu(13, FontWeight.w600, C.body, 1.45),
@@ -304,6 +365,94 @@ class _SettingsScreenState extends State<SettingsScreen> {
 }
 
 /// A mini app preview for the theme picker.
+/// A background colour family, previewed in the current light/dark mode.
+class _BgTile extends StatelessWidget {
+  final BgFamily family;
+  final double width;
+  final bool on;
+  final VoidCallback onTap;
+  const _BgTile({required this.family, required this.width, required this.on, required this.onTap});
+  @override
+  Widget build(BuildContext context) {
+    final p = palFor(family.key, C.dark);
+    return Semantics(
+      button: true,
+      selected: on,
+      label: '${family.name} background',
+      child: Pressable(
+        onTap: onTap,
+        scale: .93,
+        child: Column(children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            width: width,
+            height: 54,
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: on ? C.brown : C.line, width: on ? 2.5 : 1),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                color: p.bg,
+                padding: const EdgeInsets.all(7),
+                child: Row(children: [
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Container(width: 26, height: 5, decoration: BoxDecoration(color: p.ink, borderRadius: BorderRadius.circular(3))),
+                      const Spacer(),
+                      Container(height: 14, decoration: BoxDecoration(color: p.card, borderRadius: BorderRadius.circular(5), border: Border.all(color: p.line))),
+                    ]),
+                  ),
+                  const SizedBox(width: 6),
+                  Container(width: 12, height: 30, decoration: BoxDecoration(color: p.chip, borderRadius: BorderRadius.circular(3))),
+                ]),
+              ),
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(family.name, style: nu(12, on ? FontWeight.w800 : FontWeight.w700, on ? C.brown : C.ink)),
+        ]),
+      ),
+    );
+  }
+}
+
+class _PatternTile extends StatelessWidget {
+  final String kind, label;
+  final bool on;
+  final VoidCallback onTap;
+  const _PatternTile({required this.kind, required this.label, required this.on, required this.onTap});
+  @override
+  Widget build(BuildContext context) => Semantics(
+        button: true,
+        selected: on,
+        label: '$label pattern',
+        child: Pressable(
+          onTap: onTap,
+          scale: .93,
+          child: Column(children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              height: 46,
+              decoration: BoxDecoration(
+                color: C.bg,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: on ? C.brown : C.line, width: on ? 2.5 : 1),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: CustomPaint(painter: PatternPainter(kind, C.ink.withValues(alpha: .22)), child: const SizedBox.expand()),
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(label, style: nu(11.5, on ? FontWeight.w800 : FontWeight.w700, on ? C.brown : C.ink)),
+          ]),
+        ),
+      );
+}
+
 class _ThemeTile extends StatelessWidget {
   final String kind, label;
   final bool on;
@@ -345,8 +494,8 @@ class _ThemeTile extends StatelessWidget {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(12),
               child: kind == 'system'
-                  ? Row(children: [Expanded(child: _mini(lightPal)), Expanded(child: _mini(darkPal))])
-                  : SizedBox(width: double.infinity, child: _mini(kind == 'dark' ? darkPal : lightPal)),
+                  ? Row(children: [Expanded(child: _mini(palFor(store.settings.bg, false))), Expanded(child: _mini(palFor(store.settings.bg, true)))])
+                  : SizedBox(width: double.infinity, child: _mini(palFor(store.settings.bg, kind == 'dark'))),
             ),
           ),
           const SizedBox(height: 6),

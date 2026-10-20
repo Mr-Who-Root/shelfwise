@@ -39,13 +39,13 @@ class _TourState extends State<Tour> {
 
   late final List<_Step> _steps = [
     _Step('Cozy shelves', 'Your books stand on shelves just like at home. Tap one to open it, or press and hold to drag it to a new spot. A full shelf grows a sub shelf.',
-        ['Long-press to reorder', '🪴 Decorations you can play with', 'Slide across to tear out'], const Color(0xFFF5ECDF), () => const _ShelfArt()),
-    _Step('Read your own copy', 'Attach a PDF when you add a book. Drag a corner and the page curls over like paper. Pinch or double-tap to zoom, and Shelfwise remembers your page.',
-        ['📎 Attach a PDF', '📖 Continue where you stopped', '🔍 Swipe pages while zoomed'], const Color(0xFF1D4A37), () => const _ReadArt()),
+        ['📷 Scan a barcode to add', 'Long-press to reorder', '🪴 Decorations you can play with'], const Color(0xFFF5ECDF), () => const _ShelfArt()),
+    _Step('Read your own copy', 'Attach a PDF or EPUB to a book. Drag a corner and the page curls over like paper. Pinch or double-tap to zoom, bookmark pages, jot notes, and pick up where you stopped.',
+        ['📎 PDF or EPUB', '🔖 Bookmarks & notes', '⏱️ Reading time'], const Color(0xFF1D4A37), () => const _ReadArt()),
     _Step('Reading to-dos', 'Plan the reading life: “finish chapter 12 tonight”, “return Rebecca”. Add due times, stars, hashtags and a linked book. Ticking them off unlocks rewards.',
         ['⏰ Reminders', '⭐ Star the important ones', '🎁 Rewards for milestones'], const Color(0xFFF6B300), () => const _TodoArt()),
-    _Step('Stats & Rewind', 'Watch your month, year or all-time reading fill up. Play your Rewind, a story-style recap, then share it or save it as an image.',
-        ['📊 Books by month', '🎞️ Rewind story', '📤 Share your stats'], const Color(0xFF1C1C1C), () => const _StatsArt()),
+    _Step('Stats & Rewind', 'Set a yearly goal and watch your month, year or all-time reading fill up. Play your Rewind, a story-style recap, then share it or save it as an image.',
+        ['🎯 Yearly goal', '🎞️ Rewind story', '⭐ Star ratings'], const Color(0xFF1C1C1C), () => const _StatsArt()),
     _Step('Make it yours', 'Light, dark or follow your phone. Pick an accent colour, a font you love and a comfortable text size in Settings.',
         ['🌙 Dark mode', '🎨 Five accents', 'Aa Three fonts'], const Color(0xFFB6D8D5), () => const _ThemeArt()),
     _Step('Private by design', 'No account, no ads, everything stays on this phone. Use Settings → Share backup to keep a copy safe, and Import backup on a new phone.',
@@ -140,7 +140,7 @@ class _TourState extends State<Tour> {
                   curve: ease,
                   height: 54,
                   padding: EdgeInsets.symmetric(horizontal: last ? 26 : 22),
-                  decoration: BoxDecoration(color: C.black, borderRadius: BorderRadius.circular(6)),
+                  decoration: BoxDecoration(color: C.dark ? C.brown : C.black, borderRadius: BorderRadius.circular(6)),
                   alignment: Alignment.center,
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
                     AnimatedSwitcher(

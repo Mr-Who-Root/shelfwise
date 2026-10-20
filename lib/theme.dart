@@ -85,6 +85,111 @@ const darkPal = Pal(
   hint: Color(0xFF8C7C6A),
 );
 
+/// A background colour family. Each has a light and a dark version, derived from
+/// the cream palettes by shifting hue and saturation.
+class BgFamily {
+  final String key, name;
+  final double? hue; // null keeps the cream palette's own hues
+  final double sat; // saturation multiplier
+  const BgFamily(this.key, this.name, this.hue, this.sat);
+}
+
+const bgFamilies = [
+  BgFamily('cream', 'Cream', null, 1),
+  BgFamily('paper', 'Paper', null, .18),
+  BgFamily('sage', 'Sage', 105, .85),
+  BgFamily('sky', 'Sky', 210, .9),
+  BgFamily('blush', 'Blush', 350, .8),
+  BgFamily('lavender', 'Lavender', 268, .8),
+];
+
+Color _tint(Color c, BgFamily f) {
+  if (f.hue == null && f.sat == 1) return c;
+  final h = HSLColor.fromColor(c);
+  return h.withHue(f.hue ?? h.hue).withSaturation((h.saturation * f.sat).clamp(0.0, 1.0)).toColor();
+}
+
+final _palCache = <String, Pal>{};
+
+/// The palette for background family [key] in light or [dark] mode.
+Pal palFor(String key, bool dark) => _palCache.putIfAbsent('$key|$dark', () {
+      final f = bgFamilies.firstWhere((b) => b.key == key, orElse: () => bgFamilies.first);
+      final p = dark ? darkPal : lightPal;
+      Color t(Color c) => _tint(c, f);
+      return Pal(
+        brightness: p.brightness,
+        page: t(p.page),
+        bg: t(p.bg),
+        ink: t(p.ink),
+        muted: t(p.muted),
+        chip: t(p.chip),
+        chipText: t(p.chipText),
+        card: t(p.card),
+        line: t(p.line),
+        inputLine: t(p.inputLine),
+        softBrown: t(p.softBrown),
+        body: t(p.body),
+        toast: t(p.toast),
+        dangerBg: p.dangerBg,
+        dangerInk: p.dangerInk,
+        error: p.error,
+        track: t(p.track),
+        switchOff: t(p.switchOff),
+        plank: p.plank,
+        field: p.field == const Color(0xFFFFFFFF) ? p.field : t(p.field),
+        nav: t(p.nav),
+        hint: t(p.hint),
+      );
+    });
+
+/// Subtle patterns drawn behind the pages.
+const bgPatterns = [('none', 'Plain'), ('dots', 'Dots'), ('ruled', 'Ruled'), ('grid', 'Grid'), ('linen', 'Linen')];
+
+class PatternPainter extends CustomPainter {
+  final String kind;
+  final Color color;
+  const PatternPainter(this.kind, this.color);
+
+  @override
+  void paint(Canvas c, Size s) {
+    final p = Paint()
+      ..color = color
+      ..strokeWidth = 1;
+    switch (kind) {
+      case 'dots':
+        for (double y = 10; y < s.height; y += 22) {
+          final off = ((y / 22).floor().isOdd) ? 11.0 : 0.0;
+          for (double x = 10 + off; x < s.width; x += 22) {
+            c.drawCircle(Offset(x, y), 1.6, p);
+          }
+        }
+      case 'ruled':
+        for (double y = 34; y < s.height; y += 30) {
+          c.drawLine(Offset(0, y), Offset(s.width, y), p);
+        }
+        c.drawLine(const Offset(30, 0), Offset(30, s.height), p..color = const Color(0x33E0703F));
+      case 'grid':
+        for (double y = 0; y < s.height; y += 24) {
+          c.drawLine(Offset(0, y), Offset(s.width, y), p);
+        }
+        for (double x = 0; x < s.width; x += 24) {
+          c.drawLine(Offset(x, 0), Offset(x, s.height), p);
+        }
+      case 'linen':
+        p.strokeWidth = .8;
+        for (double d = -s.height; d < s.width; d += 9) {
+          c.drawLine(Offset(d, 0), Offset(d + s.height, s.height), p);
+        }
+        for (double d = 0; d < s.width + s.height; d += 9) {
+          c.drawLine(Offset(d, 0), Offset(d - s.height, s.height), p..color = color.withValues(alpha: color.a * .6));
+        }
+    }
+  }
+
+  @override
+  bool shouldRepaint(PatternPainter o) => o.kind != kind || o.color != color;
+}
+
 class Accent {
   final String name;
   final Color color;

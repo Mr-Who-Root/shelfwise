@@ -16,8 +16,8 @@ class CopyPanel extends StatelessWidget {
   Future<void> _attach() async {
     final c = await pickBookCopy();
     if (c == null) return;
-    attachCopy(b, c);
-    toast('Attached · ${plural(c.pages, 'page')}');
+    await attachCopy(b, c);
+    toast(c.isEpub ? 'EPUB attached' : 'Attached · ${plural(c.pages, 'page')}');
   }
 
   @override
@@ -52,7 +52,7 @@ class CopyPanel extends StatelessWidget {
           const SizedBox(height: 6),
           Row(children: [
             Expanded(
-              child: Text('Page ${b.page + 1} of ${b.pages} · ${(pct * 100).round()}%',
+              child: Text(b.pages == 0 ? (b.isEpub ? 'EPUB · not opened yet' : 'Not opened yet') : 'Page ${b.page + 1} of ${b.pages} · ${(pct * 100).round()}%',
                   style: nu(12, FontWeight.w700, C.muted)),
             ),
             if (editable) ...[
@@ -60,7 +60,7 @@ class CopyPanel extends StatelessWidget {
               const SizedBox(width: 12),
               _link('Remove', () {
                 detachCopy(b);
-                toast('PDF removed from this book');
+                toast('Book file removed');
               }),
             ],
           ]),
@@ -75,10 +75,10 @@ class CopyPanel extends StatelessWidget {
         if (missing)
           Padding(
             padding: const EdgeInsets.only(bottom: 6),
-            child: Text('This book’s PDF isn’t on this phone (backups don’t carry PDFs).', style: nu(12, FontWeight.w700, C.muted)),
+            child: Text('This book’s file isn’t on this phone. Restore a backup that includes book files, or attach it again.', style: nu(12, FontWeight.w700, C.muted)),
           ),
         Pill(
-          missing ? 'Attach the PDF again' : 'Have a copy? Attach the PDF',
+          missing ? 'Attach the file again' : 'Have a copy? Attach a PDF or EPUB',
           kind: Kind.outline,
           expand: true,
           icon: const Text('📎', style: TextStyle(fontSize: 15)),

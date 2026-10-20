@@ -538,6 +538,14 @@ String fmtDue(DateTime d) {
   return '$label · $h:$m ${d.hour < 12 ? 'AM' : 'PM'}';
 }
 
+/// 3725 → "1h 2m", 300 → "5 min".
+String fmtDuration(int seconds) {
+  final m = (seconds / 60).round();
+  if (m < 60) return '$m min';
+  final h = m ~/ 60, r = m % 60;
+  return r == 0 ? '${h}h' : '${h}h ${r}m';
+}
+
 String fmtDate(int ms) {
   final d = DateTime.fromMillisecondsSinceEpoch(ms);
   const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];

@@ -19,10 +19,10 @@ class Look {
   static void apply({bool animate = false}) {
     final s = store.settings;
     final dark = wantsDark;
-    final next = '$dark|${s.accent}|${s.font}|${s.textScale}';
+    final next = '$dark|${s.accent}|${s.font}|${s.textScale}|${s.bg}|${s.pattern}';
     if (next == sig.value) return;
     final first = sig.value.isEmpty;
-    C.p = dark ? darkPal : lightPal;
+    C.p = palFor(s.bg, dark);
     C.accent = accents[s.accent.clamp(0, accents.length - 1)].color;
     F.ui = fontChoices.any((f) => f.$1 == s.font) ? s.font : F.nunito;
     overlay();
