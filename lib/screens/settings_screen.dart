@@ -120,6 +120,90 @@ class _SettingsScreenState extends State<SettingsScreen> {
     toast('Backup restored · welcome back, ${store.profile.first}!');
   }
 
+  final Set<String> _openSections = {};
+
+  Widget _section({
+    required String id,
+    required String emoji,
+    required String title,
+    required String subtitle,
+    required Widget child,
+  }) {
+    final isOpen = _openSections.contains(id);
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Pressable(
+            onTap: () {
+              Buzz.tick();
+              setState(() {
+                if (isOpen) {
+                  _openSections.remove(id);
+                } else {
+                  _openSections.add(id);
+                }
+              });
+            },
+            scale: .98,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color: C.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: isOpen ? C.brown.withValues(alpha: .35) : C.line),
+                boxShadow: [
+                  BoxShadow(color: Color.fromRGBO(0, 0, 0, C.dark ? .15 : .04), offset: const Offset(0, 2), blurRadius: 6),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: isOpen ? C.brown.withValues(alpha: .14) : C.chip,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(emoji, style: const TextStyle(fontSize: 19)),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(title, style: nu(16, FontWeight.w800, C.ink)),
+                        Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: nu(12.5, FontWeight.w600, C.muted)),
+                      ],
+                    ),
+                  ),
+                  AnimatedRotation(
+                    turns: isOpen ? 0.25 : 0,
+                    duration: const Duration(milliseconds: 240),
+                    curve: ease,
+                    child: Text('›', style: nu(22, FontWeight.w700, isOpen ? C.brown : C.muted)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 280),
+            curve: ease,
+            child: isOpen
+                ? Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: child,
+                  )
+                : const SizedBox(width: double.infinity),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final mq = MediaQuery.of(context);
@@ -139,135 +223,170 @@ class _SettingsScreenState extends State<SettingsScreen> {
             )),
             const SizedBox(height: 18),
             sec(_profileCard()),
-            sec(const H2('Appearance')),
-            sec(CardBox(
-              pad: const EdgeInsets.all(16),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                _label('Theme'),
-                Row(children: [
-                  for (final (k, l) in const [('light', 'Light'), ('dark', 'Dark'), ('system', 'System')]) ...[
-                    Expanded(child: _ThemeTile(kind: k, label: l, on: s.theme == k, onTap: () => _set(() => s.theme = k, look: true))),
-                    if (k != 'system') const SizedBox(width: 10),
-                  ],
-                ]),
-                const SizedBox(height: 18),
-                _label('Background'),
-                LayoutBuilder(
-                  builder: (_, c) => Wrap(spacing: 10, runSpacing: 10, children: [
-                    for (final f in bgFamilies)
-                      _BgTile(family: f, width: (c.maxWidth - 20) / 3, on: s.bg == f.key, onTap: () => _set(() => s.bg = f.key, look: true)),
+            sec(_section(
+              id: 'appearance',
+              emoji: '🎨',
+              title: 'Appearance',
+              subtitle: 'Theme, background, pattern, colors, font & text size',
+              child: CardBox(
+                pad: const EdgeInsets.all(16),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  _label('Theme'),
+                  Row(children: [
+                    for (final (k, l) in const [('light', 'Light'), ('dark', 'Dark'), ('system', 'System')]) ...[
+                      Expanded(child: _ThemeTile(kind: k, label: l, on: s.theme == k, onTap: () => _set(() => s.theme = k, look: true))),
+                      if (k != 'system') const SizedBox(width: 10),
+                    ],
                   ]),
-                ),
-                const SizedBox(height: 14),
-                _label('Pattern'),
-                Row(children: [
-                  for (final (k, l) in bgPatterns) ...[
-                    Expanded(child: _PatternTile(kind: k, label: l, on: s.pattern == k, onTap: () => _set(() => s.pattern = k, look: true))),
-                    if (k != bgPatterns.last.$1) const SizedBox(width: 8),
-                  ],
-                ]),
-                const SizedBox(height: 18),
-                _label('Accent colour'),
-                Wrap(spacing: 12, runSpacing: 10, children: [
-                  for (final (ix, a) in accents.indexed)
-                    _Swatch(accent: a, on: s.accent == ix, onTap: () => _set(() => s.accent = ix, look: true)),
-                ]),
-                const SizedBox(height: 18),
-                _label('Font'),
-                Row(children: [
-                  for (final (f, d) in fontChoices) ...[
-                    Expanded(child: _FontTile(font: f, desc: d, on: s.font == f, onTap: () => _set(() => s.font = f, look: true))),
-                    if (f != fontChoices.last.$1) const SizedBox(width: 10),
-                  ],
-                ]),
-                const SizedBox(height: 18),
-                _label('Text size'),
-                Row(children: [
-                  for (final (v, l) in const [(.9, 'Small'), (1.0, 'Default'), (1.12, 'Large')]) ...[
-                    PopChip(l,
-                        on: s.textScale == v,
-                        fontSize: 13,
-                        pad: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        onTap: () => _set(() => s.textScale = v, look: true)),
-                    const SizedBox(width: 8),
-                  ],
-                ]),
-                const SizedBox(height: 12),
-                AnimatedSize(
-                  duration: const Duration(milliseconds: 250),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(color: C.bg, borderRadius: BorderRadius.circular(12), border: Border.all(color: C.line)),
-                    child: Text('The owl read one more chapter before bed, as owls do.',
-                        style: nu(15, FontWeight.w600, C.body, 1.4)),
+                  const SizedBox(height: 18),
+                  _label('Background'),
+                  LayoutBuilder(
+                    builder: (_, c) => Wrap(spacing: 10, runSpacing: 10, children: [
+                      for (final f in bgFamilies)
+                        _BgTile(family: f, width: (c.maxWidth - 20) / 3, on: s.bg == f.key, onTap: () => _set(() => s.bg = f.key, look: true)),
+                    ]),
                   ),
+                  const SizedBox(height: 14),
+                  _label('Pattern'),
+                  Row(children: [
+                    for (final (k, l) in bgPatterns) ...[
+                      Expanded(child: _PatternTile(kind: k, label: l, on: s.pattern == k, onTap: () => _set(() => s.pattern = k, look: true))),
+                      if (k != bgPatterns.last.$1) const SizedBox(width: 8),
+                    ],
+                  ]),
+                  const SizedBox(height: 18),
+                  _label('Accent colour'),
+                  Wrap(spacing: 12, runSpacing: 10, children: [
+                    for (final (ix, a) in accents.indexed)
+                      _Swatch(accent: a, on: s.accent == ix, onTap: () => _set(() => s.accent = ix, look: true)),
+                  ]),
+                  const SizedBox(height: 18),
+                  _label('Font'),
+                  Row(children: [
+                    for (final (f, d) in fontChoices) ...[
+                      Expanded(child: _FontTile(font: f, desc: d, on: s.font == f, onTap: () => _set(() => s.font = f, look: true))),
+                      if (f != fontChoices.last.$1) const SizedBox(width: 10),
+                    ],
+                  ]),
+                  const SizedBox(height: 18),
+                  _label('Text size'),
+                  Row(children: [
+                    for (final (v, l) in const [(.9, 'Small'), (1.0, 'Default'), (1.12, 'Large')]) ...[
+                      PopChip(l,
+                          on: s.textScale == v,
+                          fontSize: 13,
+                          pad: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          onTap: () => _set(() => s.textScale = v, look: true)),
+                      const SizedBox(width: 8),
+                    ],
+                  ]),
+                  const SizedBox(height: 12),
+                  AnimatedSize(
+                    duration: const Duration(milliseconds: 250),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: C.bg, borderRadius: BorderRadius.circular(12), border: Border.all(color: C.line)),
+                      child: Text('The owl read one more chapter before bed, as owls do.',
+                          style: nu(15, FontWeight.w600, C.body, 1.4)),
+                    ),
+                  ),
+                ]),
+              ),
+            )),
+            sec(_section(
+              id: 'backup',
+              emoji: '💾',
+              title: 'Backup & restore',
+              subtitle: 'Export to Drive or files, include book copies & restore',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _card([
+                    _item('📤', 'Share backup',
+                        sub: _busy ? 'Saving…' : (store.lastBackup == null ? 'Send a backup file to Drive, email or chat' : 'Last saved ${fmtDate(store.lastBackup!)}'),
+                        onTap: _share),
+                    _item('📚', 'Include book files',
+                        sub: store.copiesBytes == 0
+                            ? 'PDF and EPUB copies, when you attach some'
+                            : 'Adds ${fmtSize(store.copiesBytes)} of PDF/EPUB copies',
+                        trailing: AppSwitch(value: s.backupFiles, onChanged: (v) {
+                          _set(() => s.backupFiles = v);
+                          toast(v ? 'Backups will carry your book files' : 'Backups will skip book files');
+                        })),
+                    _item('📥', 'Import backup', sub: 'Restore from a Shelfwise backup file', onTap: _import),
+                  ]),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(6, 8, 6, 0),
+                    child: Text(
+                        'Everything stays on this phone. Backups hold your shelves, to-dos, covers, notes and progress'
+                        '${s.backupFiles ? ', plus your book files (as a .zip).' : '. Turn on “Include book files” to carry your PDFs and EPUBs too.'}',
+                        style: nu(12, FontWeight.w600, C.muted, 1.4)),
+                  ),
+                ],
+              ),
+            )),
+            sec(_section(
+              id: 'alerts',
+              emoji: '🔔',
+              title: 'Alerts',
+              subtitle: 'To-do reminder notifications and evening nudge',
+              child: _card([
+                _item('🔔', 'To-do reminders', sub: 'A nudge when a to-do is due or starts soon', trailing: AppSwitch(value: s.reminders, onChanged: (v) async {
+                  if (v && !await Notifier.requestPermission()) toast('Allow notifications for Shelfwise in Android settings');
+                  _set(() => s.reminders = v);
+                  toast(v ? 'To-do reminders on' : 'To-do reminders off');
+                })),
+                _item('🌙', 'Evening reading nudge', sub: 'Every day at 8 PM', trailing: AppSwitch(value: s.dailyNudge, onChanged: (v) async {
+                  if (v && !await Notifier.requestPermission()) toast('Allow notifications for Shelfwise in Android settings');
+                  _set(() => s.dailyNudge = v);
+                  toast(v ? 'We’ll nudge you at 8 PM' : 'Evening nudge off');
+                })),
+              ]),
+            )),
+            sec(_section(
+              id: 'feel',
+              emoji: '✨',
+              title: 'Feel',
+              subtitle: 'Page turns, lamps, owl sounds and tactile haptics',
+              child: _card([
+                _item('🔊', 'Sound effects', sub: 'Page turns, lamps, owls and tears', trailing: AppSwitch(value: s.sounds, onChanged: (v) {
+                  _set(() => s.sounds = v);
+                  if (v) Sfx.play('pop');
+                })),
+                _item('📳', 'Haptics', sub: 'Little taps under your finger', trailing: AppSwitch(value: s.haptics, onChanged: (v) {
+                  _set(() => s.haptics = v);
+                  Buzz.light();
+                })),
+              ]),
+            )),
+            sec(_section(
+              id: 'updates',
+              emoji: '🚀',
+              title: 'Updates',
+              subtitle: 'Version $appVersion · Check for new releases',
+              child: _card([
+                _item('⬆️', 'Check for updates', sub: _checking ? 'Checking…' : 'You have version $appVersion', onTap: _checkNow),
+                _item('🔄', 'Check automatically', sub: 'Once a day, quietly', trailing: AppSwitch(value: s.autoUpdate, onChanged: (v) => _set(() => s.autoUpdate = v))),
+              ]),
+            )),
+            sec(_section(
+              id: 'more',
+              emoji: '⭐',
+              title: 'More',
+              subtitle: 'Rewards, take the tour, replay intro and about',
+              child: _card([
+                _item('🎁', 'Rewards', sub: store.unclaimed.isEmpty ? 'See what’s next' : '${store.unclaimed.length} waiting for you', onTap: openRewards),
+                _item('🧭', 'Take the tour', sub: 'A quick look at everything Shelfwise does', onTap: () => Navigator.of(context).push(tourRoute())),
+                _item('🔁', 'Replay intro', sub: 'See the welcome screens again', onTap: widget.onReplay),
+                _item('ℹ️', 'About Shelfwise', sub: 'Version $appVersion', onTap: () => setState(() => _about = !_about), open: _about),
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 280),
+                  curve: ease,
+                  child: _about ? _aboutBody() : const SizedBox(width: double.infinity),
                 ),
               ]),
             )),
-            sec(const H2('Backup & restore')),
-            sec(_card([
-              _item('📤', 'Share backup',
-                  sub: _busy ? 'Saving…' : (store.lastBackup == null ? 'Send a backup file to Drive, email or chat' : 'Last saved ${fmtDate(store.lastBackup!)}'),
-                  onTap: _share),
-              _item('📚', 'Include book files',
-                  sub: store.copiesBytes == 0
-                      ? 'PDF and EPUB copies, when you attach some'
-                      : 'Adds ${fmtSize(store.copiesBytes)} of PDF/EPUB copies',
-                  trailing: AppSwitch(value: s.backupFiles, onChanged: (v) {
-                    _set(() => s.backupFiles = v);
-                    toast(v ? 'Backups will carry your book files' : 'Backups will skip book files');
-                  })),
-              _item('📥', 'Import backup', sub: 'Restore from a Shelfwise backup file', onTap: _import),
-            ])),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(6, 8, 6, 0),
-              child: Text(
-                  'Everything stays on this phone. Backups hold your shelves, to-dos, covers, notes and progress'
-                  '${s.backupFiles ? ', plus your book files (as a .zip).' : '. Turn on “Include book files” to carry your PDFs and EPUBs too.'}',
-                  style: nu(12, FontWeight.w600, C.muted, 1.4)),
-            ),
-            sec(const H2('Alerts')),
-            sec(_card([
-              _item('🔔', 'To-do reminders', sub: 'A nudge when a to-do is due', trailing: AppSwitch(value: s.reminders, onChanged: (v) async {
-                if (v && !await Notifier.requestPermission()) toast('Allow notifications for Shelfwise in Android settings');
-                _set(() => s.reminders = v);
-                toast(v ? 'To-do reminders on' : 'To-do reminders off');
-              })),
-              _item('🌙', 'Evening reading nudge', sub: 'Every day at 8 PM', trailing: AppSwitch(value: s.dailyNudge, onChanged: (v) async {
-                if (v && !await Notifier.requestPermission()) toast('Allow notifications for Shelfwise in Android settings');
-                _set(() => s.dailyNudge = v);
-                toast(v ? 'We’ll nudge you at 8 PM' : 'Evening nudge off');
-              })),
-            ])),
-            sec(const H2('Feel')),
-            sec(_card([
-              _item('🔊', 'Sound effects', sub: 'Page turns, lamps, owls and tears', trailing: AppSwitch(value: s.sounds, onChanged: (v) {
-                _set(() => s.sounds = v);
-                if (v) Sfx.play('pop');
-              })),
-              _item('📳', 'Haptics', sub: 'Little taps under your finger', trailing: AppSwitch(value: s.haptics, onChanged: (v) {
-                _set(() => s.haptics = v);
-                Buzz.light();
-              })),
-            ])),
-            sec(const H2('Updates')),
-            sec(_card([
-              _item('⬆️', 'Check for updates', sub: _checking ? 'Checking…' : 'You have version $appVersion', onTap: _checkNow),
-              _item('🔄', 'Check automatically', sub: 'Once a day, quietly', trailing: AppSwitch(value: s.autoUpdate, onChanged: (v) => _set(() => s.autoUpdate = v))),
-            ])),
-            sec(const H2('More')),
-            sec(_card([
-              _item('🎁', 'Rewards', sub: store.unclaimed.isEmpty ? 'See what’s next' : '${store.unclaimed.length} waiting for you', onTap: openRewards),
-              _item('🧭', 'Take the tour', sub: 'A quick look at everything Shelfwise does', onTap: () => Navigator.of(context).push(tourRoute())),
-              _item('🔁', 'Replay intro', sub: 'See the welcome screens again', onTap: widget.onReplay),
-              _item('ℹ️', 'About Shelfwise', sub: 'Version $appVersion', onTap: () => setState(() => _about = !_about), open: _about),
-              AnimatedSize(
-                duration: const Duration(milliseconds: 280),
-                curve: ease,
-                child: _about ? _aboutBody() : const SizedBox(width: double.infinity),
-              ),
-            ])),
             const SizedBox(height: 26),
             Center(child: Opacity(opacity: .8, child: SvgPicture.string(owlSvg, width: 56, height: 51))),
             const SizedBox(height: 6),

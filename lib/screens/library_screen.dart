@@ -48,12 +48,65 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   bool get home => widget.home;
 
+  static final Set<String> _alertedTodoIds = {};
+
   @override
   void initState() {
     super.initState();
     if (!home) {
       Future.delayed(const Duration(milliseconds: 650), _nudge);
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _checkUpcomingTodoAlert());
     }
+  }
+
+  void _checkUpcomingTodoAlert() {
+    if (!mounted || !home) return;
+    final now = DateTime.now();
+    final todayEnd = endOfToday();
+    final todayStart = DateTime(now.year, now.month, now.day);
+
+    final candidates = store.todos.where((t) {
+      if (t.done || _alertedTodoIds.contains(t.id)) return false;
+      if (t.due != null) {
+        final d = t.dueAt!;
+        return d.isAfter(todayStart) && d.isBefore(todayEnd.add(const Duration(hours: 1)));
+      } else {
+        final created = DateTime.fromMillisecondsSinceEpoch(t.createdAt);
+        return created.isAfter(todayStart);
+      }
+    }).toList();
+
+    if (candidates.isEmpty) return;
+    final target = candidates.first;
+    _alertedTodoIds.add(target.id);
+
+    openDialog((ctx) => AppDialog(
+          title: '⏰ To-do Reminder',
+          children: [
+            Text(
+              '${target.text} starts in 1 hr',
+              style: nu(16, FontWeight.w800, C.ink, 1.3),
+            ),
+            if (target.book.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text('📖 ${target.book}', style: nu(13, FontWeight.w600, C.muted)),
+              ),
+            const SizedBox(height: 6),
+            Text(
+              target.due != null ? 'Scheduled for today (${fmtDue(target.dueAt!)})' : 'Active reading task for today',
+              style: nu(12, FontWeight.w600, C.muted),
+            ),
+          ],
+          actions: [
+            Btn('Skip', kind: Kind.normal, onTap: () => true),
+            Btn('OK', kind: Kind.pri, onTap: () {
+              widget.onTodo();
+              return true;
+            }),
+          ],
+        ));
   }
 
   @override
@@ -219,10 +272,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
         if (_lastRead() case final b?) ...[
           const SizedBox(height: 12),
           _ContinueCard(b),
-        ],
-        if (due.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          _UpNext(todos: due.take(3).toList(), onMore: widget.onTodo),
         ],
       ]),
     );

@@ -104,12 +104,186 @@ class _NavBar extends StatelessWidget {
           child: ListenableBuilder(
             listenable: store,
             builder: (_, _) => Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-              _NavBtn(Ic.home, 'Home', tab == 0, () => onTab(0)),
-              _NavBtn(Ic.library, 'Library', tab == 1, () => onTab(1)),
+              _HomeLibSlider(tab: tab, onTab: onTab),
               _NavBtn(Ic.todo, 'To-do', tab == 2, () => onTab(2), dot: store.dueTodos.isNotEmpty),
               _NavBtn(Ic.stats, 'Stats', tab == 3, () => onTab(3)),
               _NavBtn(Ic.settings, 'Settings', tab >= 4, () => onTab(4)),
             ]),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HomeLibSlider extends StatefulWidget {
+  final int tab;
+  final ValueChanged<int> onTab;
+  const _HomeLibSlider({required this.tab, required this.onTab});
+
+  @override
+  State<_HomeLibSlider> createState() => _HomeLibSliderState();
+}
+
+class _HomeLibSliderState extends State<_HomeLibSlider> {
+  double _dragOffset = 0;
+
+  void _switchTo(int t) {
+    if (widget.tab != t) {
+      Buzz.tick();
+      Sfx.play('tap');
+      widget.onTab(t);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isHome = widget.tab == 0;
+    final isLib = widget.tab == 1;
+    final isSelected = isHome || isLib;
+
+    return Semantics(
+      button: true,
+      label: isLib ? 'Library (Slide right for Home)' : 'Home (Slide left for Library)',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragStart: (_) => _dragOffset = 0,
+        onHorizontalDragUpdate: (details) {
+          _dragOffset += details.primaryDelta ?? 0;
+          if (_dragOffset < -24) {
+            _switchTo(1);
+            _dragOffset = 0;
+          } else if (_dragOffset > 24) {
+            _switchTo(0);
+            _dragOffset = 0;
+          }
+        },
+        onHorizontalDragEnd: (details) {
+          final vx = details.primaryVelocity ?? 0;
+          if (vx < -150) {
+            _switchTo(1);
+          } else if (vx > 150) {
+            _switchTo(0);
+          }
+          _dragOffset = 0;
+        },
+        onTap: () {
+          _switchTo(isHome ? 1 : 0);
+        },
+        child: Container(
+          width: 122,
+          height: 52,
+          padding: const EdgeInsets.all(3),
+          decoration: BoxDecoration(
+            color: isSelected ? C.card : Colors.transparent,
+            borderRadius: BorderRadius.circular(26),
+            border: Border.all(
+              color: isSelected ? C.brown.withValues(alpha: .28) : C.line.withValues(alpha: .5),
+              width: 1.2,
+            ),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: const Color.fromRGBO(0, 0, 0, .05),
+                      offset: const Offset(0, 2),
+                      blurRadius: 6,
+                    ),
+                  ]
+                : null,
+          ),
+          child: Stack(
+            children: [
+              AnimatedAlign(
+                duration: const Duration(milliseconds: 240),
+                curve: ease,
+                alignment: isLib ? Alignment.centerRight : Alignment.centerLeft,
+                child: FractionallySizedBox(
+                  widthFactor: 0.52,
+                  heightFactor: 1.0,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: isSelected ? C.brown : const Color.fromRGBO(184, 105, 42, .14),
+                      borderRadius: BorderRadius.circular(22),
+                      boxShadow: isSelected
+                          ? [
+                              BoxShadow(
+                                color: C.brown.withValues(alpha: .3),
+                                offset: const Offset(0, 2),
+                                blurRadius: 4,
+                              ),
+                            ]
+                          : null,
+                    ),
+                  ),
+                ),
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => _switchTo(0),
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SvgIcon(
+                              Ic.home,
+                              color: isHome
+                                  ? Colors.white
+                                  : (isSelected ? C.ink.withValues(alpha: .7) : C.ink),
+                              size: 19,
+                            ),
+                            const SizedBox(height: 1),
+                            Text(
+                              'Home',
+                              style: nu(
+                                10,
+                                FontWeight.w700,
+                                isHome
+                                    ? Colors.white
+                                    : (isSelected ? C.ink.withValues(alpha: .7) : C.ink),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => _switchTo(1),
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SvgIcon(
+                              Ic.library,
+                              color: isLib
+                                  ? Colors.white
+                                  : (isSelected ? C.ink.withValues(alpha: .7) : C.ink),
+                              size: 19,
+                            ),
+                            const SizedBox(height: 1),
+                            Text(
+                              'Library',
+                              style: nu(
+                                10,
+                                FontWeight.w700,
+                                isLib
+                                    ? Colors.white
+                                    : (isSelected ? C.ink.withValues(alpha: .7) : C.ink),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
       ),
