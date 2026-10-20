@@ -64,8 +64,36 @@ class _PetOverlayState extends State<PetOverlay> with TickerProviderStateMixin {
         _offScreen = false;
       }
       _loopId++;
-      _startLifeLoop();
+      _handleTabTransition(old.tab, widget.tab);
     }
+  }
+
+  Future<void> _handleTabTransition(int oldTab, int newTab) async {
+    final curLoop = _loopId;
+    if (!mounted) return;
+    final size = MediaQuery.sizeOf(context);
+    final padding = MediaQuery.paddingOf(context);
+    final floor = _floorY(size, padding);
+
+    // If standing on a shelf or to-do card, jump down immediately to the clear floor
+    if ((_y - floor).abs() > 10) {
+      await _jumpTo(_x, floor, loop: curLoop, rise: 22);
+      if (curLoop != _loopId || _fleeing || !mounted) return;
+    }
+
+    setState(() {
+      _y = floor;
+      _naughtyEmoji = null;
+    });
+
+    // Walk horizontally across as the page changes ("walk through the next page")
+    final walkDir = newTab >= oldTab ? 1.0 : -1.0;
+    final targetX = (_x + walkDir * (60.0 + Random().nextDouble() * 50.0)).clamp(40.0, size.width - 60.0);
+    await _walkTo(targetX, loop: curLoop, speed: 85);
+    if (curLoop != _loopId || _fleeing || !mounted) return;
+
+    setState(() => _state = 'sit');
+    _startLifeLoop();
   }
 
   @override
@@ -314,8 +342,12 @@ class _PetOverlayState extends State<PetOverlay> with TickerProviderStateMixin {
       final nearestTodo = _findNearestPlatform(todos);
       if (nearestTodo != null) {
         landX = _x.clamp(nearestTodo.left + 30.0, nearestTodo.right - 30.0);
-        landY = nearestTodo.top + 6;
+        landY = nearestTodo.top; // Stand above the box ledge
       }
+    } else {
+      // On Settings, Stats, and Library: bird lands strictly on the clear floor
+      landX = _x.clamp(40.0, size.width - 60.0);
+      landY = floor;
     }
 
     // Glide down to land smoothly
@@ -445,7 +477,7 @@ class _PetOverlayState extends State<PetOverlay> with TickerProviderStateMixin {
           final targetTodo = _findNearestPlatform(todos);
           if (targetTodo != null) {
             final targetX = _x.clamp(targetTodo.left + 30.0, targetTodo.right - 30.0);
-            final targetY = targetTodo.top + 6;
+            final targetY = targetTodo.top; // Stands on top of the box, never inside
 
             // Walk underneath it first
             await _walkTo(targetX, loop: curLoop);
@@ -478,10 +510,10 @@ class _PetOverlayState extends State<PetOverlay> with TickerProviderStateMixin {
             final otherTodos = todos.where((r) => r != targetTodo).toList();
             final nextTodo = _findNearestPlatform(otherTodos);
             if (nextTodo != null &&
-                (nextTodo.top + 6 - _y).abs() <= 150 &&
+                (nextTodo.top - _y).abs() <= 150 &&
                 rnd.nextDouble() < 0.5) {
               final nextX = _x.clamp(nextTodo.left + 30.0, nextTodo.right - 30.0);
-              final nextY = nextTodo.top + 6;
+              final nextY = nextTodo.top; // Stands on top of the card
               await _jumpTo(nextX, nextY, loop: curLoop, rise: 34);
               if (curLoop != _loopId || _fleeing) return;
 
@@ -501,7 +533,11 @@ class _PetOverlayState extends State<PetOverlay> with TickerProviderStateMixin {
         }
       }
 
-      // --- Default Floor roaming (all tabs, including Tab 1 Library) ---
+      // --- Default Floor roaming (all tabs, including Tab 1 Library, Tab 3 Stats, Tab 4 Settings) ---
+      // Ensure pet strictly rests on the clear floor surface where no letters or words exist
+      if ((_y - floor).abs() > 2) {
+        setState(() => _y = floor);
+      }
       // Move a natural short distance along floor
       final deltaX = (rnd.nextBool() ? 1 : -1) * (45.0 + rnd.nextDouble() * 80.0);
       final targetFloorX = (_x + deltaX).clamp(40.0, size.width - 60.0);

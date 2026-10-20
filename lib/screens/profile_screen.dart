@@ -148,10 +148,163 @@ class ProfileScreen extends StatelessWidget {
                 }),
               ]),
             ),
+            const H2('Account & data'),
+            CardBox(
+              pad: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFDE8E8),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        alignment: Alignment.center,
+                        child: const Icon(Icons.person_off_rounded, color: Color(0xFFDC2626), size: 20),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('User Account', style: nu(15, FontWeight.w800)),
+                            Text(
+                              p.email.isNotEmpty ? p.email : '@${p.handle}',
+                              style: nu(12.5, FontWeight.w600, C.muted),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Delete your user account, all saved books, reading progress, and to-do lists.',
+                    style: nu(12.5, FontWeight.w600, C.muted, 1.35),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Pressable(
+                          onTap: () => _confirmDeleteUser(context),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFDE8E8),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: const Color(0xFFF87171)),
+                            ),
+                            alignment: Alignment.center,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.delete_forever_rounded, size: 17, color: Color(0xFFDC2626)),
+                                const SizedBox(width: 6),
+                                Text('Delete user', style: nu(13.5, FontWeight.w800, const Color(0xFFDC2626))),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Pressable(
+                          onTap: () => _confirmLogout(context),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              color: C.chip,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: C.line),
+                            ),
+                            alignment: Alignment.center,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.logout_rounded, size: 17, color: C.ink),
+                                const SizedBox(width: 6),
+                                Text('Logout', style: nu(13.5, FontWeight.w800, C.ink)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ],
         );
       },
     );
+  }
+
+  void _confirmDeleteUser(BuildContext context) {
+    Buzz.medium();
+    Sfx.play('tear');
+    openDialog((ctx) => AppDialog(
+          title: 'Delete user account?',
+          children: [
+            const Sub(
+              'This action is irreversible. All your books, reading bookmarks, to-do lists, and profile data will be permanently wiped from this device.',
+              pad: EdgeInsets.zero,
+            ),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFDE8E8),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFF87171)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626), size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Everything related to this user will be deleted and you will be returned to the initial setup.',
+                      style: nu(12, FontWeight.w700, const Color(0xFF991B1B), 1.3),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          actions: [
+            const Btn('Cancel'),
+            Btn('Delete user', kind: Kind.dng, onTap: () async {
+              await store.deleteUser();
+              Sfx.play('reset');
+              toast('User account and all data deleted');
+              return true;
+            }),
+          ],
+        ));
+  }
+
+  void _confirmLogout(BuildContext context) {
+    Buzz.tick();
+    openDialog((ctx) => AppDialog(
+          title: 'Log out?',
+          children: [
+            const Sub('You will return to the welcome screen where you can sign in or choose your library mode.'),
+          ],
+          actions: [
+            const Btn('Cancel'),
+            Btn('Logout', kind: Kind.pri, onTap: () {
+              store.logout();
+              toast('Logged out');
+              return true;
+            }),
+          ],
+        ));
   }
 
   Widget _stat(int v, String l, VoidCallback onTap) => Expanded(

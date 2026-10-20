@@ -11,6 +11,7 @@ import '../data/store.dart';
 import '../services/sfx.dart';
 import '../theme.dart';
 import 'book_cover.dart';
+import 'book_share_sheet.dart';
 import 'common.dart';
 import 'dialogs.dart';
 import 'pet_overlay.dart';
@@ -61,14 +62,14 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
 
   String? _pressed;
   Item? _drag;
-  double _dragX = 0, _grab = 0, _finger = 0, _vx = 0;
+  double _dragX = 0, _dragY = 0, _grab = 0, _finger = 0, _vx = 0;
   int? _insertAt; // where the dragged item would land; the others slide apart to make room
   bool _overflow = false;
   final Set<String> _fresh = {};
 
   double get _w => (MediaQuery.sizeOf(context).width * .21).clamp(70.0, 88.0);
   double get _h => _w * 1.42;
-  bool get _canDrag => !widget.home && !widget.exp;
+  bool get _canDrag => !widget.exp;
 
   @override
   void initState() {
@@ -166,6 +167,7 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
   }
 
   void _dragStart(Item it, _Slot s, LongPressStartDetails d) {
+    if (widget.home && it.isDecor) return;
     Buzz.medium();
     Sfx.play('lift');
     setState(() {
@@ -173,13 +175,26 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
       _drag = it;
       _grab = d.localPosition.dx;
       _dragX = s.x;
+      _dragY = 0;
       _finger = s.x + _grab;
       _insertAt = widget.items.indexOf(it);
     });
-    _auto.start();
+    if (!widget.home) _auto.start();
   }
 
   void _dragMove(LongPressMoveUpdateDetails d) {
+    if (widget.home) {
+      final box = _stackKey.currentContext?.findRenderObject() as RenderBox?;
+      if (box != null) {
+        final local = box.globalToLocal(d.globalPosition);
+        final dy = local.dy - (_h * 0.7);
+        setState(() {
+          _dragX = local.dx - _grab;
+          _dragY = dy.clamp(-220.0, 20.0);
+        });
+      }
+      return;
+    }
     final box = _stackKey.currentContext?.findRenderObject() as RenderBox?;
     final view = _viewKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null || view == null) return;
@@ -214,6 +229,27 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
   }
 
   void _dragEnd() {
+    if (widget.home) {
+      final d = _drag;
+      final dy = _dragY;
+      final dx = _dragX;
+      setState(() {
+        _drag = null;
+        _insertAt = null;
+        _dragY = 0;
+      });
+      if (d == null) return;
+      if (dy < -35) {
+        final screenW = MediaQuery.sizeOf(context).width;
+        final isSend = dx < (screenW * 0.5);
+        Buzz.medium();
+        Sfx.play('swoosh');
+        openBookShareSheet(context, book: d, initialTab: isSend ? 0 : 1);
+      } else {
+        Sfx.play('drop');
+      }
+      return;
+    }
     _auto.stop();
     final d = _drag, at = _insertAt;
     Item? anchor;
@@ -357,6 +393,17 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
           ),
         Positioned(left: 12, bottom: 13, right: widget.home ? 12 : 140, child: Align(alignment: Alignment.centerLeft, child: _slab(p))),
         if (!widget.home) Positioned(right: 12, bottom: 10, child: _acts()),
+        if (widget.home && _drag != null && _dragY < -25)
+          Positioned(
+            left: 16,
+            right: 16,
+            top: -60,
+            height: 52,
+            child: _DragShareOverlay(
+              dragX: _dragX,
+              hoverSend: _dragX < (vw * 0.5),
+            ),
+          ),
       ]);
     });
   }
@@ -405,9 +452,9 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
     final Matrix4 m;
     if (dragging) {
       m = Matrix4.identity()
-        ..translateByDouble(0, -14, 0, 1)
+        ..translateByDouble(0, widget.home ? _dragY : -14, 0, 1)
         ..rotateZ(-3 * pi / 180)
-        ..scaleByDouble(1.12, 1.12, 1, 1);
+        ..scaleByDouble(widget.home ? 1.15 : 1.12, widget.home ? 1.15 : 1.12, 1, 1);
     } else if (lifted) {
       m = Matrix4.identity()
         ..translateByDouble(0, -16, 0, 1)
@@ -1012,5 +1059,69 @@ class _PillThumb extends SliderComponentShape {
     final c = context.canvas;
     c.drawRRect(r.shift(const Offset(0, 1)), Paint()..color = const Color.fromRGBO(0, 0, 0, .3)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2));
     c.drawRRect(r, Paint()..color = C.brown);
+  }
+}
+
+class _DragShareOverlay extends StatelessWidget {
+  final double dragX;
+  final bool hoverSend;
+
+  const _DragShareOverlay({required this.dragX, required this.hoverSend});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xF22B1D10),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: const [
+          BoxShadow(color: Color.fromRGBO(0, 0, 0, .35), blurRadius: 14, offset: Offset(0, 4)),
+        ],
+        border: Border.all(color: const Color(0x33FFE1B4), width: 1.5),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 140),
+              margin: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: hoverSend ? C.brown : Colors.transparent,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              alignment: Alignment.center,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('📤', style: TextStyle(fontSize: 15)),
+                  const SizedBox(width: 6),
+                  Text('Drop to Send', style: nu(13, FontWeight.w800, Colors.white)),
+                ],
+              ),
+            ),
+          ),
+          Container(width: 1, height: 26, color: const Color(0x33FFFFFF)),
+          Expanded(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 140),
+              margin: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: !hoverSend ? C.brown : Colors.transparent,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              alignment: Alignment.center,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('📥', style: TextStyle(fontSize: 15)),
+                  const SizedBox(width: 6),
+                  Text('Drop to Receive', style: nu(13, FontWeight.w800, Colors.white)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

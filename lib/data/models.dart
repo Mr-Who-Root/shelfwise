@@ -44,6 +44,7 @@ class Item {
   int readMs; // time spent reading this book's copy
   List<Mark> marks;
   String isbn;
+  String? fromUser;
 
   Item({
     String? id,
@@ -67,6 +68,7 @@ class Item {
     this.readMs = 0,
     List<Mark>? marks,
     this.isbn = '',
+    this.fromUser,
   })  : id = id ?? newId(),
         marks = marks ?? [],
         tags = tags ?? [],
@@ -99,6 +101,7 @@ class Item {
           if (readMs > 0) 'readMs': readMs,
           if (marks.isNotEmpty) 'marks': marks.map((e) => e.toJson()).toList(),
           if (isbn.isNotEmpty) 'isbn': isbn,
+          if (fromUser != null && fromUser!.isNotEmpty) 'fromUser': fromUser,
         },
         if (sub) 'sh': 1,
         'at': addedAt,
@@ -127,6 +130,7 @@ class Item {
         readMs: (j['readMs'] as num?)?.toInt() ?? 0,
         marks: ((j['marks'] ?? const []) as List).map((e) => Mark.fromJson((e as Map).cast<String, dynamic>())).toList(),
         isbn: (j['isbn'] ?? '') as String,
+        fromUser: j['fromUser'] as String?,
       );
 
   Item copy() => Item.fromJson(toJson());

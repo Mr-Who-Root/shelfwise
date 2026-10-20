@@ -12,6 +12,7 @@ import '../icons.dart';
 import '../services/sfx.dart';
 import '../theme.dart';
 import '../widgets/book_cover.dart';
+import '../widgets/book_share_sheet.dart';
 import '../widgets/common.dart';
 import '../widgets/copy_panel.dart';
 import '../widgets/dialogs.dart';
@@ -160,6 +161,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             padding: EdgeInsets.fromLTRB(0, top + 26, 0, 170),
             children: [
               _header(all.length),
+              if (home && store.isSample) _sampleLibraryBanner(),
               if (home) _homeBar(),
               if (!home) ...[
                 _search(),
@@ -203,18 +205,74 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  void _shareApp(BuildContext context) {
+  Widget _sampleLibraryBanner() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(22, 12, 22, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF3E0),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFFFB74D).withValues(alpha: .55)),
+      ),
+      child: Row(
+        children: [
+          const Text('📚', style: TextStyle(fontSize: 20)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Sample Library Active', style: nu(13.5, FontWeight.w800, C.brown)),
+                Text('Tap Logout to enter your actual empty library',
+                    style: nu(11.5, FontWeight.w600, C.muted)),
+              ],
+            ),
+          ),
+          Pressable(
+            onTap: _confirmLogout,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: C.brown,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.logout_rounded, size: 14, color: Colors.white),
+                  const SizedBox(width: 4),
+                  Text('Logout', style: nu(12, FontWeight.w800, Colors.white)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmLogout() {
     Buzz.tick();
-    Sfx.play('swoosh');
-    final box = context.findRenderObject() as RenderBox?;
-    final first = store.profile.first.isNotEmpty ? store.profile.first : 'Reader';
-    final bookCount = store.totalBooks;
-    final text = '✨ Check out my bookshelves on Shelfwise! I have $bookCount ${plural(bookCount, 'book')} organized on my cozy shelves. Download Shelfwise: https://mr-who-root.github.io/shelfwise/';
-    SharePlus.instance.share(ShareParams(
-      subject: '$first’s Bookshelf on Shelfwise',
-      text: text,
-      sharePositionOrigin: box == null ? null : box.localToGlobal(Offset.zero) & box.size,
-    ));
+    openDialog((ctx) => AppDialog(
+          title: 'Log out of sample library?',
+          children: [
+            const Sub(
+              'You will return to the welcome screen where you can start without the sample library and begin building your actual personal library.',
+            ),
+          ],
+          actions: [
+            const Btn('Cancel'),
+            Btn('Logout', kind: Kind.pri, onTap: () {
+              store.logout();
+              toast('Logged out');
+              return true;
+            }),
+          ],
+        ));
+  }
+
+  void _shareApp(BuildContext context) {
+    openBookShareSheet(context, initialTab: 0);
   }
 
   Widget _header(int total) {
@@ -237,7 +295,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 icon: Ic.share,
                 count: 0,
                 label: 'Share',
-                onTap: () => _shareApp(ctx),
+                onTap: () => openBookShareSheet(ctx, initialTab: 0),
               ),
             ),
             const SizedBox(width: 10),
@@ -763,6 +821,28 @@ class _LibraryScreenState extends State<LibraryScreen> {
           builder: (ctx, _) => AppDialog(
             title: b.title,
             children: [
+              if (c.name.trim().toLowerCase() == 'shared books' || (b.fromUser != null && b.fromUser!.isNotEmpty))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF3E8DC),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFD4B996)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('🤝 ', style: TextStyle(fontSize: 15)),
+                        Text(
+                          'Book from ${b.fromUser?.trim().isNotEmpty == true ? b.fromUser : "User 2"}',
+                          style: nu(13, FontWeight.w800, C.brown),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               Row(children: [
                 _Shadowed(child: BookCover(b, w: 68, h: 96, titleSize: 9, authorSize: 7, titleLines: 5)),
                 const SizedBox(width: 14),
@@ -1110,6 +1190,28 @@ class _ContinueCard extends StatelessWidget {
 /// Read-only look at a book (Home mode and profile).
 void openBookView(Collection c, Item b) {
   openDialog((_) => AppDialog(title: b.title, children: [
+        if (c.name.trim().toLowerCase() == 'shared books' || (b.fromUser != null && b.fromUser!.isNotEmpty))
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3E8DC),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFD4B996)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('🤝 ', style: TextStyle(fontSize: 15)),
+                  Text(
+                    'Book from ${b.fromUser?.trim().isNotEmpty == true ? b.fromUser : "User 2"}',
+                    style: nu(13, FontWeight.w800, C.brown),
+                  ),
+                ],
+              ),
+            ),
+          ),
         Row(children: [
           _Shadowed(child: BookCover(b, w: 68, h: 96, titleSize: 9, authorSize: 7, titleLines: 5)),
           const SizedBox(width: 14),

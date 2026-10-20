@@ -66,6 +66,15 @@ class AppStore extends ChangeNotifier {
 
   bool onboarded = false;
   bool toured = false;
+  bool isSample = false;
+  List<String> pairedFriends = [];
+  String _pairingCode = '';
+  String get pairingCode {
+    if (_pairingCode.isEmpty) {
+      _pairingCode = '${1000 + Random().nextInt(9000)}';
+    }
+    return _pairingCode;
+  }
   Profile profile = Profile();
   List<Collection> cols = [];
   List<String> headings = [];
@@ -102,6 +111,9 @@ class AppStore extends ChangeNotifier {
         'v': 1,
         'onboarded': onboarded,
         'toured': toured,
+        'isSample': isSample,
+        'pairedFriends': pairedFriends,
+        'pairingCode': pairingCode,
         'profile': profile.toJson(),
         'cols': cols.map((c) => c.toJson()).toList(),
         'headings': headings,
@@ -118,6 +130,9 @@ class AppStore extends ChangeNotifier {
   void fromJson(Map<String, dynamic> j) {
     onboarded = j['onboarded'] == true;
     toured = j['toured'] == true;
+    isSample = j['isSample'] == true;
+    pairedFriends = ((j['pairedFriends'] ?? const []) as List).cast<String>().toList();
+    _pairingCode = (j['pairingCode'] ?? '') as String;
     profile = Profile.fromJson(((j['profile'] ?? const {}) as Map).cast<String, dynamic>());
     cols = ((j['cols'] ?? const []) as List).map((e) => Collection.fromJson((e as Map).cast<String, dynamic>())).toList();
     headings = ((j['headings'] ?? const []) as List).cast<String>().toList();
@@ -572,6 +587,7 @@ class AppStore extends ChangeNotifier {
   // ---------- setup ----------
 
   void setupFresh({String name = '', required bool sample, String email = ''}) {
+    isSample = sample;
     final finalName = name.trim().isNotEmpty ? name.trim() : (email.trim().isNotEmpty ? nameFromEmail(email) : 'Reader');
     profile = Profile(name: finalName, handle: handleFor(finalName), email: email.trim(), bio: 'Reading one page at a time.');
     headings = [];
@@ -584,15 +600,87 @@ class AppStore extends ChangeNotifier {
         Collection(name: 'Want to read', emoji: '🔖', items: [Item.decor('pot')]),
         Collection(name: 'Favourites', emoji: '⭐', items: [Item.decor('candle')]),
       ];
-      final now = DateTime.now();
-      todos = [
-        Todo(text: 'Add the book I’m reading right now to my shelf', tags: ['start'], due: DateTime(now.year, now.month, now.day, 21).millisecondsSinceEpoch),
-        Todo(text: 'Tap the lamp on my shelf and switch it on 💡', tags: ['fun']),
-      ];
+      // Actual library starts clean with no dummy to-dos
+      todos = [];
     }
     onboarded = true;
     toured = false;
     changed();
+  }
+
+  void logout() {
+    onboarded = false;
+    toured = false;
+    changed();
+  }
+
+  Future<void> deleteUser() async {
+    profile = Profile();
+    cols = [
+      Collection(name: 'Reading now', emoji: '📖'),
+      Collection(name: 'Want to read', emoji: '🔖'),
+      Collection(name: 'Favourites', emoji: '⭐'),
+    ];
+    todos = [];
+    headings = [];
+    claimed = {};
+    settings = Settings();
+    isSample = false;
+    pairedFriends = [];
+    _pairingCode = '';
+    readLog = {};
+    goal = 0;
+    goalYear = 0;
+    onboarded = false;
+    toured = false;
+
+    try {
+      if (images.existsSync()) {
+        for (final f in images.listSync()) {
+          try {
+            f.deleteSync(recursive: true);
+          } catch (_) {}
+        }
+      }
+      if (bookFiles.existsSync()) {
+        for (final f in bookFiles.listSync()) {
+          try {
+            f.deleteSync(recursive: true);
+          } catch (_) {}
+        }
+      }
+      if (_file.existsSync()) {
+        _file.deleteSync();
+      }
+    } catch (e) {
+      debugPrint('deleteUser cleanup error: $e');
+    }
+    changed();
+  }
+
+  Item receiveSharedBook(Item book, {required String fromUser, bool permanent = false}) {
+    Collection? sharedCol;
+    for (final c in cols) {
+      if (c.name.trim().toLowerCase() == 'shared books') {
+        sharedCol = c;
+        break;
+      }
+    }
+    if (sharedCol == null) {
+      sharedCol = Collection(name: 'Shared books', emoji: '🤝');
+      cols.insert(0, sharedCol);
+    }
+    final copy = book.copy();
+    copy.id = newId();
+    final cleanSender = fromUser.trim().isNotEmpty ? fromUser.trim() : 'Friend';
+    copy.fromUser = cleanSender;
+    sharedCol.items.insert(0, copy);
+
+    if (permanent && !pairedFriends.contains(cleanSender)) {
+      pairedFriends.add(cleanSender);
+    }
+    changed();
+    return copy;
   }
 
   static String nameFromEmail(String email) {

@@ -936,7 +936,14 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text(b.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: nu(16, FontWeight.w800, const Color(0xFFF3EEE6))),
-                    Text(b.author, maxLines: 1, overflow: TextOverflow.ellipsis, style: nu(12, FontWeight.w700, const Color(0xFFCDBFAE))),
+                    Text(
+                      b.fromUser != null && b.fromUser!.isNotEmpty
+                          ? '${b.author} · 🤝 Book from ${b.fromUser}'
+                          : b.author,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: nu(12, FontWeight.w700, const Color(0xFFCDBFAE)),
+                    ),
                   ]),
                 ),
                 const SizedBox(width: 8),
