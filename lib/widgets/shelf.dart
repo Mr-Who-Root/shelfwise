@@ -15,6 +15,7 @@ import 'book_share_sheet.dart';
 import 'common.dart';
 import 'dialogs.dart';
 import 'pet_overlay.dart';
+import 'sticky_note.dart';
 
 class _Slot {
   final Item it;
@@ -381,6 +382,27 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
                         store.removeSticker(widget.col, s.id);
                         Sfx.play(tear ? 'tear' : 'pop');
                         toast(tear ? 'Sticker torn off' : 'Sticker removed');
+                      },
+                    ),
+                  ),
+                for (final note in widget.col.notesFor(sub: widget.sub))
+                  Positioned(
+                    left: (note.x / 100 * totalWidth).clamp(10.0, totalWidth - 145.0),
+                    bottom: (note.y / 100 * glassH).clamp(2.0, glassH + 20.0),
+                    child: StickyNoteWidget(
+                      key: ValueKey(note.id),
+                      note: note,
+                      width: 130,
+                      minHeight: 104,
+                      onMoved: (dx, dy) {
+                        final nx = ((note.x / 100 * totalWidth) + dx) / totalWidth * 100;
+                        final ny = ((note.y / 100 * glassH) - dy) / glassH * 100;
+                        store.moveStickyNote(widget.col, note.id, nx, ny);
+                      },
+                      onEdited: () => store.changed(),
+                      onTear: () {
+                        store.removeStickyNote(widget.col, note.id);
+                        toast('Note torn off');
                       },
                     ),
                   ),

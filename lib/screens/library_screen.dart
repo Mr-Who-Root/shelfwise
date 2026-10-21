@@ -17,6 +17,7 @@ import '../widgets/copy_panel.dart';
 import '../widgets/dialogs.dart';
 import '../widgets/fx.dart';
 import '../widgets/shelf.dart';
+import '../widgets/sticky_note.dart';
 import '../widgets/stars.dart';
 import '../widgets/update_card.dart';
 import 'add_book_screen.dart';
@@ -795,6 +796,43 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     ),
                 ],
               ),
+              const SizedBox(height: 16),
+
+              // --- Sticky Notes ---
+              Row(children: [
+                Text('Sticky notes', style: nu(13, FontWeight.w800, C.chipText)),
+                const SizedBox(width: 8),
+                Text('${c.notesFor(sub: sub).length}/10', style: nu(12, FontWeight.w600, C.muted)),
+              ]),
+              const SizedBox(height: 8),
+              Wrap(spacing: 10, runSpacing: 8, children: [
+                for (final entry in stickyColorDefs.entries)
+                  Pressable(
+                    onTap: () {
+                      if (c.notesFor(sub: sub).length >= 10) {
+                        toast('That shelf already has 10 sticky notes');
+                        return;
+                      }
+                      Navigator.pop(ctx);
+                      if (store.addStickyNote(c, text: 'Reading note…', color: entry.key, ink: '#1c2f6b', sub: sub)) {
+                        Sfx.play('pop');
+                        toast('Sticky note pinned to shelf! Tap it on the shelf to write or edit.');
+                      }
+                    },
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: entry.value,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0x33000000)),
+                        boxShadow: const [BoxShadow(color: Color(0x18000000), offset: Offset(1, 2), blurRadius: 3)],
+                      ),
+                      alignment: Alignment.center,
+                      child: const Text('📝', style: TextStyle(fontSize: 20)),
+                    ),
+                  ),
+              ]),
             ],
             actions: const [Btn('Close')],
           ),

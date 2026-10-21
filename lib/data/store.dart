@@ -79,6 +79,7 @@ class AppStore extends ChangeNotifier {
   List<Collection> cols = [];
   List<String> headings = [];
   List<Todo> todos = [];
+  List<StickyNote> todoNotes = [];
   Settings settings = Settings();
   Set<String> claimed = {};
   int? lastBackup;
@@ -118,6 +119,8 @@ class AppStore extends ChangeNotifier {
         'cols': cols.map((c) => c.toJson()).toList(),
         'headings': headings,
         'todos': todos.map((t) => t.toJson()).toList(),
+        if (todoNotes.isNotEmpty)
+          'todoNotes': todoNotes.map((n) => n.toJson()).toList(),
         'settings': settings.toJson(),
         'claimed': claimed.toList(),
         if (lastBackup != null) 'lastBackup': lastBackup,
@@ -137,6 +140,7 @@ class AppStore extends ChangeNotifier {
     cols = ((j['cols'] ?? const []) as List).map((e) => Collection.fromJson((e as Map).cast<String, dynamic>())).toList();
     headings = ((j['headings'] ?? const []) as List).cast<String>().toList();
     todos = ((j['todos'] ?? const []) as List).map((e) => Todo.fromJson((e as Map).cast<String, dynamic>())).toList();
+    todoNotes = ((j['todoNotes'] ?? const []) as List).map((e) => StickyNote.fromJson((e as Map).cast<String, dynamic>())).toList();
     settings = Settings.fromJson(((j['settings'] ?? const {}) as Map).cast<String, dynamic>());
     claimed = ((j['claimed'] ?? const []) as List).cast<String>().toSet();
     lastBackup = (j['lastBackup'] as num?)?.toInt();
@@ -307,6 +311,91 @@ class AppStore extends ChangeNotifier {
         break;
       }
     }
+  }
+
+  bool addStickyNote(Collection c, {
+    required String text,
+    required String color,
+    required String ink,
+    required bool sub,
+  }) {
+    if (c.notesFor(sub: sub).length >= 10) return false;
+    final rnd = Random();
+    final x = 12.0 + rnd.nextDouble() * 66.0;
+    final y = 40.0 + rnd.nextDouble() * 22.0;
+    final r = (rnd.nextDouble() * 8.0 - 4.0);
+    c.stickyNotes.add(StickyNote(
+      text: text,
+      color: color,
+      ink: ink,
+      x: x,
+      y: y,
+      r: r,
+      sub: sub,
+      shelfId: c.id,
+    ));
+    changed();
+    return true;
+  }
+
+  void updateStickyNote(Collection c, String id, {String? text, String? color, String? ink}) {
+    for (final n in c.stickyNotes) {
+      if (n.id == id) {
+        if (text != null) n.text = text;
+        if (color != null) n.color = color;
+        if (ink != null) n.ink = ink;
+        changed();
+        break;
+      }
+    }
+  }
+
+  void removeStickyNote(Collection c, String noteId) {
+    c.stickyNotes.removeWhere((n) => n.id == noteId);
+    changed();
+  }
+
+  void moveStickyNote(Collection c, String noteId, double x, double y) {
+    for (final n in c.stickyNotes) {
+      if (n.id == noteId) {
+        n.x = x.clamp(2.0, 96.0);
+        n.y = y.clamp(2.0, 90.0);
+        changed();
+        break;
+      }
+    }
+  }
+
+  void addTodoStickyNote({required String text, required String color, required String ink}) {
+    final rnd = Random();
+    final r = (rnd.nextDouble() * 6.0 - 3.0);
+    todoNotes.add(StickyNote(
+      text: text,
+      color: color,
+      ink: ink,
+      r: r,
+      isTodo: true,
+      x: 10.0 + rnd.nextDouble() * 40.0,
+      y: 0.0,
+    ));
+    changed();
+  }
+
+  void updateTodoStickyNote(String id, {String? text, String? color, String? ink}) {
+    for (final n in todoNotes) {
+      if (n.id == id) {
+        if (text != null) n.text = text;
+        if (color != null) n.color = color;
+        if (ink != null) n.ink = ink;
+        changed();
+        break;
+      }
+    }
+  }
+
+  void removeTodoStickyNote(String id) {
+    todoNotes.removeWhere((n) => n.id == id);
+    changed();
   }
 
   Collection? colOf(Item it) {
@@ -602,6 +691,7 @@ class AppStore extends ChangeNotifier {
       ];
       // Actual library starts clean with no dummy to-dos
       todos = [];
+      todoNotes = [];
     }
     onboarded = true;
     toured = false;
@@ -622,6 +712,7 @@ class AppStore extends ChangeNotifier {
       Collection(name: 'Favourites', emoji: '⭐'),
     ];
     todos = [];
+    todoNotes = [];
     headings = [];
     claimed = {};
     settings = Settings();

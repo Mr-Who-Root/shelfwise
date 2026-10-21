@@ -31,6 +31,19 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _busy = false, _about = false, _checking = false;
+  int _customSubTab = 0;
+
+  Future<void> _buyCoffee() async {
+    Buzz.medium();
+    Sfx.play('fanfare');
+    final url = Uri.parse('https://buymeacoffee.com/shelfwise');
+    try {
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url, mode: LaunchMode.externalApplication);
+      }
+    } catch (_) {}
+    toast('Thank you for supporting Shelfwise! ☕💛');
+  }
 
   Future<void> _checkNow() async {
     if (_checking) return;
@@ -224,147 +237,125 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 18),
             sec(_profileCard()),
             sec(_section(
-              id: 'appearance',
+              id: 'custom',
               emoji: '🎨',
-              title: 'Appearance',
-              subtitle: 'Theme, background, pattern, colors, font & text size',
+              title: 'Custom',
+              subtitle: 'Appearance, shelf style, pets & feel',
               child: CardBox(
-                pad: const EdgeInsets.all(16),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  _label('Theme'),
-                  Row(children: [
-                    for (final (k, l) in const [('light', 'Light'), ('dark', 'Dark'), ('system', 'System')]) ...[
-                      Expanded(child: _ThemeTile(kind: k, label: l, on: s.theme == k, onTap: () => _set(() => s.theme = k, look: true))),
-                      if (k != 'system') const SizedBox(width: 10),
-                    ],
-                  ]),
-                  const SizedBox(height: 18),
-                  _label('Background'),
-                  LayoutBuilder(
-                    builder: (_, c) => Wrap(spacing: 10, runSpacing: 10, children: [
-                      for (final f in bgFamilies)
-                        _BgTile(family: f, width: (c.maxWidth - 20) / 3, on: s.bg == f.key, onTap: () => _set(() => s.bg = f.key, look: true)),
-                    ]),
-                  ),
-                  const SizedBox(height: 14),
-                  _label('Pattern'),
-                  Row(children: [
-                    for (final (k, l) in bgPatterns) ...[
-                      Expanded(child: _PatternTile(kind: k, label: l, on: s.pattern == k, onTap: () => _set(() => s.pattern = k, look: true))),
-                      if (k != bgPatterns.last.$1) const SizedBox(width: 8),
-                    ],
-                  ]),
-                  const SizedBox(height: 18),
-                  _label('Accent colour'),
-                  Wrap(spacing: 12, runSpacing: 10, children: [
-                    for (final (ix, a) in accents.indexed)
-                      _Swatch(accent: a, on: s.accent == ix, onTap: () => _set(() => s.accent = ix, look: true)),
-                  ]),
-                  const SizedBox(height: 18),
-                  _label('Font'),
-                  Row(children: [
-                    for (final (f, d) in fontChoices) ...[
-                      Expanded(child: _FontTile(font: f, desc: d, on: s.font == f, onTap: () => _set(() => s.font = f, look: true))),
-                      if (f != fontChoices.last.$1) const SizedBox(width: 10),
-                    ],
-                  ]),
-                  const SizedBox(height: 18),
-                  _label('Text size'),
-                  Row(children: [
-                    for (final (v, l) in const [(.9, 'Small'), (1.0, 'Default'), (1.12, 'Large')]) ...[
-                      PopChip(l,
-                          on: s.textScale == v,
-                          fontSize: 13,
-                          pad: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                          onTap: () => _set(() => s.textScale = v, look: true)),
-                      const SizedBox(width: 8),
-                    ],
-                  ]),
-                  const SizedBox(height: 12),
-                  AnimatedSize(
-                    duration: const Duration(milliseconds: 250),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(color: C.bg, borderRadius: BorderRadius.circular(12), border: Border.all(color: C.line)),
-                      child: Text('The owl read one more chapter before bed, as owls do.',
-                          style: nu(15, FontWeight.w600, C.body, 1.4)),
+                pad: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      physics: const BouncingScrollPhysics(),
+                      child: Row(
+                        children: [
+                          for (final (ix, label, emoji) in const [
+                            (0, 'Appearance', '🎨'),
+                            (1, 'Shelf style', '🪵'),
+                            (2, 'Pets', '🐾'),
+                            (3, 'Feel', '✨'),
+                          ])
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: Pressable(
+                                onTap: () {
+                                  Buzz.tick();
+                                  setState(() => _customSubTab = ix);
+                                },
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 180),
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: _customSubTab == ix ? C.brown : C.chip,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: _customSubTab == ix ? C.brown : C.line,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(emoji, style: const TextStyle(fontSize: 14)),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        label,
+                                        style: nu(13, FontWeight.w800, _customSubTab == ix ? Colors.white : C.chipText),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
-                  ),
-                ]),
+                    const SizedBox(height: 16),
+                    if (_customSubTab == 0)
+                      _buildAppearanceSettings(s)
+                    else if (_customSubTab == 1)
+                      _buildShelfStyleSettings(s)
+                    else if (_customSubTab == 2)
+                      _buildPetsSettings(s)
+                    else
+                      _buildFeelSettings(s),
+                  ],
+                ),
               ),
             )),
-            sec(_section(
-              id: 'shelf_style',
-              emoji: '🪵',
-              title: 'Shelf style',
-              subtitle: 'Glass, wood, iron or plastic materials',
-              child: CardBox(
-                pad: const EdgeInsets.all(16),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  _label('Shelf material'),
-                  Text('Applies to every shelf in My Library and Home.', style: nu(13, FontWeight.w600, C.muted)),
-                  const SizedBox(height: 12),
-                  Row(children: [
-                    for (final (k, l) in const [
-                      ('glass', 'Glass'),
-                      ('wood', 'Wood'),
-                      ('iron', 'Iron'),
-                      ('plastic', 'Plastic'),
-                    ]) ...[
+            sec(Padding(
+              padding: const EdgeInsets.only(top: 14),
+              child: Pressable(
+                onTap: _buyCoffee,
+                scale: .98,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: C.card,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFFFD54F)),
+                    boxShadow: [
+                      BoxShadow(color: const Color(0x1F000000), offset: const Offset(0, 2), blurRadius: 6),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 38,
+                        height: 38,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFDD00),
+                          borderRadius: BorderRadius.circular(10),
+                          boxShadow: const [
+                            BoxShadow(color: Color(0x22000000), offset: Offset(0, 1), blurRadius: 3),
+                          ],
+                        ),
+                        child: const Text('☕', style: TextStyle(fontSize: 20)),
+                      ),
+                      const SizedBox(width: 14),
                       Expanded(
-                        child: _ShelfStyleTile(
-                          kind: k,
-                          label: l,
-                          on: s.shelfStyle == k,
-                          onTap: () {
-                            _set(() => s.shelfStyle = k);
-                            Sfx.play('tap');
-                            toast('Shelf style: $l');
-                          },
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Buy me a coffee', style: nu(16, FontWeight.w800, C.ink)),
+                            Text('Support cozy reading & future Shelfwise updates',
+                                maxLines: 1, overflow: TextOverflow.ellipsis, style: nu(12.5, FontWeight.w600, C.muted)),
+                          ],
                         ),
                       ),
-                      if (k != 'plastic') const SizedBox(width: 8),
-                    ],
-                  ]),
-                ]),
-              ),
-            )),
-            sec(_section(
-              id: 'pets',
-              emoji: '🐾',
-              title: 'Pets',
-              subtitle: 'Companion for Home, To-do and your reading journey',
-              child: CardBox(
-                pad: const EdgeInsets.all(16),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  _label('Choose your companion'),
-                  Text(
-                    'Your pet roams your screens, hops onto shelves on Home, and visits your to-dos. Double-tap it to shoo it away.',
-                    style: nu(13, FontWeight.w600, C.muted),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(spacing: 10, runSpacing: 10, children: [
-                    for (final (k, l, e) in const [
-                      ('none', 'No pet', '🚫'),
-                      ('cat', 'Cat', '🐱'),
-                      ('dog', 'Dog', '🐶'),
-                      ('rabbit', 'Rabbit', '🐰'),
-                      ('bird', 'Bird', '🐦'),
-                    ])
-                      _PetChoiceTile(
-                        kind: k,
-                        label: l,
-                        emoji: e,
-                        on: s.pet == k,
-                        onTap: () {
-                          _set(() => s.pet = k);
-                          Sfx.pet(k, 'call');
-                          toast(k == 'none' ? 'No pet' : '$l is on its way!');
-                        },
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFF8F00),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text('Support 💛', style: nu(12, FontWeight.w800, Colors.white)),
                       ),
-                  ]),
-                ]),
+                    ],
+                  ),
+                ),
               ),
             )),
             sec(_section(
@@ -418,22 +409,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ]),
             )),
             sec(_section(
-              id: 'feel',
-              emoji: '✨',
-              title: 'Feel',
-              subtitle: 'Page turns, lamps, owl sounds and tactile haptics',
-              child: _card([
-                _item('🔊', 'Sound effects', sub: 'Page turns, lamps, owls and tears', trailing: AppSwitch(value: s.sounds, onChanged: (v) {
-                  _set(() => s.sounds = v);
-                  if (v) Sfx.play('pop');
-                })),
-                _item('📳', 'Haptics', sub: 'Little taps under your finger', trailing: AppSwitch(value: s.haptics, onChanged: (v) {
-                  _set(() => s.haptics = v);
-                  Buzz.light();
-                })),
-              ]),
-            )),
-            sec(_section(
               id: 'updates',
               emoji: '🚀',
               title: 'Updates',
@@ -449,6 +424,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: 'More',
               subtitle: 'Rewards, take the tour, replay intro and about',
               child: _card([
+                _item('☕', 'Buy me a coffee', sub: 'Support cozy reading & future Shelfwise updates', onTap: _buyCoffee),
                 _item('🎁', 'Rewards', sub: store.unclaimed.isEmpty ? 'See what’s next' : '${store.unclaimed.length} waiting for you', onTap: openRewards),
                 _item('🧭', 'Take the tour', sub: 'A quick look at everything Shelfwise does', onTap: () => Navigator.of(context).push(tourRoute())),
                 _item('🔁', 'Replay intro', sub: 'See the welcome screens again', onTap: widget.onReplay),
@@ -468,6 +444,145 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       },
     );
+  }
+
+  Widget _buildAppearanceSettings(Settings s) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _label('Theme'),
+      Row(children: [
+        for (final (k, l) in const [('light', 'Light'), ('dark', 'Dark'), ('system', 'System')]) ...[
+          Expanded(child: _ThemeTile(kind: k, label: l, on: s.theme == k, onTap: () => _set(() => s.theme = k, look: true))),
+          if (k != 'system') const SizedBox(width: 10),
+        ],
+      ]),
+      const SizedBox(height: 18),
+      _label('Background'),
+      LayoutBuilder(
+        builder: (_, c) => Wrap(spacing: 10, runSpacing: 10, children: [
+          for (final f in bgFamilies)
+            _BgTile(family: f, width: (c.maxWidth - 20) / 3, on: s.bg == f.key, onTap: () => _set(() => s.bg = f.key, look: true)),
+        ]),
+      ),
+      const SizedBox(height: 14),
+      _label('Pattern'),
+      Row(children: [
+        for (final (k, l) in bgPatterns) ...[
+          Expanded(child: _PatternTile(kind: k, label: l, on: s.pattern == k, onTap: () => _set(() => s.pattern = k, look: true))),
+          if (k != bgPatterns.last.$1) const SizedBox(width: 8),
+        ],
+      ]),
+      const SizedBox(height: 18),
+      _label('Accent colour'),
+      Wrap(spacing: 12, runSpacing: 10, children: [
+        for (final (ix, a) in accents.indexed)
+          _Swatch(accent: a, on: s.accent == ix, onTap: () => _set(() => s.accent = ix, look: true)),
+      ]),
+      const SizedBox(height: 18),
+      _label('Font'),
+      Row(children: [
+        for (final (f, d) in fontChoices) ...[
+          Expanded(child: _FontTile(font: f, desc: d, on: s.font == f, onTap: () => _set(() => s.font = f, look: true))),
+          if (f != fontChoices.last.$1) const SizedBox(width: 10),
+        ],
+      ]),
+      const SizedBox(height: 18),
+      _label('Text size'),
+      Row(children: [
+        for (final (v, l) in const [(.9, 'Small'), (1.0, 'Default'), (1.12, 'Large')]) ...[
+          PopChip(l,
+              on: s.textScale == v,
+              fontSize: 13,
+              pad: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              onTap: () => _set(() => s.textScale = v, look: true)),
+          const SizedBox(width: 8),
+        ],
+      ]),
+      const SizedBox(height: 12),
+      AnimatedSize(
+        duration: const Duration(milliseconds: 250),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(color: C.bg, borderRadius: BorderRadius.circular(12), border: Border.all(color: C.line)),
+          child: Text('The owl read one more chapter before bed, as owls do.',
+              style: nu(15, FontWeight.w600, C.body, 1.4)),
+        ),
+      ),
+    ]);
+  }
+
+  Widget _buildShelfStyleSettings(Settings s) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _label('Shelf material'),
+      Text('Applies to every shelf in My Library and Home.', style: nu(13, FontWeight.w600, C.muted)),
+      const SizedBox(height: 12),
+      Row(children: [
+        for (final (k, l) in const [
+          ('glass', 'Glass'),
+          ('wood', 'Wood'),
+          ('iron', 'Iron'),
+          ('plastic', 'Plastic'),
+        ]) ...[
+          Expanded(
+            child: _ShelfStyleTile(
+              kind: k,
+              label: l,
+              on: s.shelfStyle == k,
+              onTap: () {
+                _set(() => s.shelfStyle = k);
+                Sfx.play('tap');
+                toast('Shelf style: $l');
+              },
+            ),
+          ),
+          if (k != 'plastic') const SizedBox(width: 8),
+        ],
+      ]),
+    ]);
+  }
+
+  Widget _buildPetsSettings(Settings s) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _label('Choose your companion'),
+      Text(
+        'Your pet roams your screens, hops onto shelves on Home, and visits your to-dos. Double-tap it to shoo it away.',
+        style: nu(13, FontWeight.w600, C.muted),
+      ),
+      const SizedBox(height: 12),
+      Wrap(spacing: 10, runSpacing: 10, children: [
+        for (final (k, l, e) in const [
+          ('none', 'No pet', '🚫'),
+          ('cat', 'Cat', '🐱'),
+          ('dog', 'Dog', '🐶'),
+          ('rabbit', 'Rabbit', '🐰'),
+          ('bird', 'Bird', '🐦'),
+        ])
+          _PetChoiceTile(
+            kind: k,
+            label: l,
+            emoji: e,
+            on: s.pet == k,
+            onTap: () {
+              _set(() => s.pet = k);
+              Sfx.pet(k, 'call');
+              toast(k == 'none' ? 'No pet' : '$l is on its way!');
+            },
+          ),
+      ]),
+    ]);
+  }
+
+  Widget _buildFeelSettings(Settings s) {
+    return _card([
+      _item('🔊', 'Sound effects', sub: 'Page turns, lamps, owls and tears', trailing: AppSwitch(value: s.sounds, onChanged: (v) {
+        _set(() => s.sounds = v);
+        if (v) Sfx.play('pop');
+      })),
+      _item('📳', 'Haptics', sub: 'Little taps under your finger', trailing: AppSwitch(value: s.haptics, onChanged: (v) {
+        _set(() => s.haptics = v);
+        Buzz.light();
+      })),
+    ]);
   }
 
   Widget _label(String t) => Padding(

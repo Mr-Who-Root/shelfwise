@@ -172,6 +172,63 @@ class ShelfSticker {
       );
 }
 
+class StickyNote {
+  String id;
+  String text;
+  String color; // e.g. '#ffe27a', '#f8b4c6', '#bfe3b0', '#a8d4f2', '#ffbe85', '#d3c2f1'
+  String ink; // e.g. '#1c2f6b', '#171717', '#c62828', '#2e7d32'
+  double x; // 0..100 percentage
+  double y; // 0..100 percentage
+  double r; // rotation in degrees
+  bool sub;
+  String? shelfId;
+  bool isTodo;
+  int createdAt;
+
+  StickyNote({
+    String? id,
+    this.text = '',
+    this.color = '#ffe27a',
+    this.ink = '#1c2f6b',
+    this.x = 50.0,
+    this.y = 50.0,
+    this.r = 0.0,
+    this.sub = false,
+    this.shelfId,
+    this.isTodo = false,
+    int? createdAt,
+  })  : id = id ?? newId(),
+        createdAt = createdAt ?? DateTime.now().millisecondsSinceEpoch;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        't': text,
+        'c': color,
+        'ink': ink,
+        'x': x,
+        'y': y,
+        'r': r,
+        if (sub) 'sub': true,
+        if (shelfId != null) 'sId': shelfId,
+        if (isTodo) 'todo': true,
+        'at': createdAt,
+      };
+
+  factory StickyNote.fromJson(Map<String, dynamic> j) => StickyNote(
+        id: j['id'] as String?,
+        text: (j['t'] ?? j['text'] ?? '') as String,
+        color: (j['c'] ?? j['color'] ?? '#ffe27a') as String,
+        ink: (j['ink'] ?? '#1c2f6b') as String,
+        x: (j['x'] as num?)?.toDouble() ?? 50.0,
+        y: (j['y'] as num?)?.toDouble() ?? 50.0,
+        r: (j['r'] as num?)?.toDouble() ?? 0.0,
+        sub: j['sub'] == true,
+        shelfId: j['sId'] as String?,
+        isTodo: j['todo'] == true,
+        createdAt: (j['at'] as num?)?.toInt(),
+      );
+}
+
 class Collection {
   String id;
   String name;
@@ -182,6 +239,7 @@ class Collection {
   String? mainLights; // null, 'warm', 'multi'
   String? subLights;
   List<ShelfSticker> stickers;
+  List<StickyNote> stickyNotes;
 
   Collection({
     String? id,
@@ -193,9 +251,11 @@ class Collection {
     this.mainLights,
     this.subLights,
     List<ShelfSticker>? stickers,
+    List<StickyNote>? stickyNotes,
   })  : id = id ?? newId(),
         items = items ?? [],
-        stickers = stickers ?? [];
+        stickers = stickers ?? [],
+        stickyNotes = stickyNotes ?? [];
 
   Iterable<Item> get books => items.where((i) => !i.isDecor);
 
@@ -211,6 +271,9 @@ class Collection {
   List<ShelfSticker> stickersFor({bool sub = false}) =>
       stickers.where((s) => s.sub == sub).toList();
 
+  List<StickyNote> notesFor({bool sub = false}) =>
+      stickyNotes.where((n) => n.sub == sub).toList();
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
@@ -222,6 +285,8 @@ class Collection {
         if (subLights != null) 'subLights': subLights,
         if (stickers.isNotEmpty)
           'stickers': stickers.map((e) => e.toJson()).toList(),
+        if (stickyNotes.isNotEmpty)
+          'stickyNotes': stickyNotes.map((e) => e.toJson()).toList(),
       };
 
   factory Collection.fromJson(Map<String, dynamic> j) => Collection(
@@ -237,6 +302,9 @@ class Collection {
         subLights: j['subLights'] as String?,
         stickers: ((j['stickers'] ?? const []) as List)
             .map((e) => ShelfSticker.fromJson((e as Map).cast<String, dynamic>()))
+            .toList(),
+        stickyNotes: ((j['stickyNotes'] ?? const []) as List)
+            .map((e) => StickyNote.fromJson((e as Map).cast<String, dynamic>()))
             .toList(),
       );
 }

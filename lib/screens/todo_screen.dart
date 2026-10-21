@@ -12,6 +12,7 @@ import '../widgets/common.dart';
 import '../widgets/dialogs.dart';
 import '../widgets/fx.dart';
 import '../widgets/pet_overlay.dart';
+import '../widgets/sticky_note.dart';
 import 'bell.dart';
 
 class TodoUi {
@@ -30,6 +31,96 @@ class TodoScreen extends StatefulWidget {
 class _TodoScreenState extends State<TodoScreen> {
   final _scroll = ScrollController();
   bool _fabDown = false;
+
+  void _addStickyNoteDialog() {
+    Buzz.tick();
+    openDialog((ctx) => StatefulBuilder(
+          builder: (ctx, set) {
+            String selectedColor = '#ffe27a';
+            final textCtrl = TextEditingController(text: '');
+            return AppDialog(
+              title: 'New sticky note',
+              maxWidth: 360,
+              actions: [
+                const Btn('Cancel'),
+                Btn('Stick Note 📌', kind: Kind.pri, onTap: () {
+                  final text = textCtrl.text.trim();
+                  store.addTodoStickyNote(
+                    text: text.isEmpty ? 'Reading to-do note…' : text,
+                    color: selectedColor,
+                    ink: '#1c2f6b',
+                  );
+                  Sfx.play('pop');
+                  toast('Sticky note added to To-do!');
+                  return true;
+                }),
+              ],
+              children: [
+                Text('Add a cozy reminder, thought, or quote to your to-do page',
+                    style: nu(13, FontWeight.w600, C.muted)),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: parseStickyColor(selectedColor),
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: const [BoxShadow(color: Color(0x22000000), offset: Offset(0, 3), blurRadius: 8)],
+                  ),
+                  child: TextField(
+                    controller: textCtrl,
+                    maxLines: 3,
+                    autofocus: true,
+                    style: const TextStyle(
+                      fontFamily: 'Caveat',
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF1C2F6B),
+                    ),
+                    decoration: const InputDecoration(
+                      hintText: 'Write a thought, note, or reminder…',
+                      hintStyle: TextStyle(
+                        fontFamily: 'Caveat',
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0x661C2F6B),
+                      ),
+                      border: InputBorder.none,
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text('Paper color', style: nu(13, FontWeight.w800, C.chipText)),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    for (final entry in stickyColorDefs.entries)
+                      GestureDetector(
+                        onTap: () => set(() => selectedColor = entry.key),
+                        child: Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: entry.value,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: selectedColor == entry.key ? C.brown : const Color(0x33000000),
+                              width: selectedColor == entry.key ? 2.5 : 1,
+                            ),
+                          ),
+                          child: selectedColor == entry.key
+                              ? const Center(child: Icon(Icons.check, size: 16, color: Color(0xFF2B2B2B)))
+                              : null,
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            );
+          },
+        ));
+  }
 
   @override
   void dispose() {
@@ -83,8 +174,26 @@ class _TodoScreenState extends State<TodoScreen> {
             children: [
               Padding(
                 padding: const EdgeInsets.only(left: 6, right: 6),
-                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
                   Expanded(child: Text('To-do', style: nu((mq.size.width * .08).clamp(26.0, 32.0), FontWeight.w800).copyWith(letterSpacing: -.4))),
+                  Pressable(
+                    onTap: _addStickyNoteDialog,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFE27A),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0x33000000)),
+                        boxShadow: const [BoxShadow(color: Color(0x18000000), offset: Offset(0, 2), blurRadius: 4)],
+                      ),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        const Text('📌', style: TextStyle(fontSize: 13)),
+                        const SizedBox(width: 4),
+                        Text('Note', style: nu(12, FontWeight.w800, const Color(0xFF1C2F6B))),
+                      ]),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   const BellButton(),
                 ]),
               ),
@@ -106,6 +215,31 @@ class _TodoScreenState extends State<TodoScreen> {
                         onTap: () => setState(() => TodoUi.f = (k == f && k.startsWith('t:')) ? 'all' : k)),
                 ]),
               ),
+              if (store.todoNotes.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(6, 0, 6, 16),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (final note in store.todoNotes)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 14),
+                            child: StickyNoteWidget(
+                              key: ValueKey(note.id),
+                              note: note,
+                              width: 144,
+                              minHeight: 114,
+                              onEdited: () => store.changed(),
+                              onTear: () => store.removeTodoStickyNote(note.id),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
               if (list.isEmpty) _empty() else _bento(list),
             ],
           ),
