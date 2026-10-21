@@ -88,6 +88,7 @@ class AppStore extends ChangeNotifier {
   int? lastBackup;
   Map<String, int> readLog = {}; // 'yyyy-mm-dd' → seconds spent reading
   int goal = 0; // books to finish this year (0 = no goal)
+  int goalYear = 0;
   int lastUpdateCheck = 0;
   List<Post> posts = createSeedPosts();
   Set<String> likedPosts = {};

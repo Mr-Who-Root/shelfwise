@@ -450,14 +450,20 @@ class _PostCardState extends State<_PostCard> with SingleTickerProviderStateMixi
 
   void _triggerPop(bool isLike) {
     setState(() {
-      if (isLike) _likeScale = 1.35;
-      else _saveScale = 1.35;
+      if (isLike) {
+        _likeScale = 1.35;
+      } else {
+        _saveScale = 1.35;
+      }
     });
     Future.delayed(const Duration(milliseconds: 180), () {
       if (mounted) {
         setState(() {
-          if (isLike) _likeScale = 1.0;
-          else _saveScale = 1.0;
+          if (isLike) {
+            _likeScale = 1.0;
+          } else {
+            _saveScale = 1.0;
+          }
         });
       }
     });
@@ -484,7 +490,7 @@ class _PostCardState extends State<_PostCard> with SingleTickerProviderStateMixi
     final text = '“${p.fullText}” — ${p.authorName} on ${p.bookTitle} by ${p.bookAuthor} · Readers';
 
     try {
-      final res = await Share.share(text);
+      final res = await SharePlus.instance.share(text);
       if (res.status == ShareResultStatus.success) {
         store.incrementSharePost(p.id);
         toast('Shared');

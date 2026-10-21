@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../data/models.dart';
 import '../data/store.dart';
@@ -504,7 +505,7 @@ class _FreeTodoNoteState extends State<_FreeTodoNote> {
                 borderRadius: BorderRadius.circular(14),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFFFFBE00).withOpacity(0.7),
+                    color: const Color(0xFFFFBE00).withValues(alpha: 0.7),
                     blurRadius: 18,
                     spreadRadius: 4,
                   )
