@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -18,8 +20,16 @@ import 'common.dart';
 import 'dialogs.dart';
 import 'fx.dart';
 
-/// Real peer-to-peer .shelfbook archive package helper.
-/// Packages the book's metadata, progress, cover image, and attached PDF/EPUB copy.
+const _peerPalette = [
+  Color(0xFFE0703F),
+  Color(0xFFC08A2E),
+  Color(0xFF6F8F6A),
+  Color(0xFF8A6FB0),
+  Color(0xFFD0607A),
+  Color(0xFF4F8FA8),
+];
+
+/// Packages a selected book into a .shelfbook archive (book.json + cover.img + content.dat).
 class ShelfBookPackage {
   static Future<File> export(Item book) async {
     final archive = Archive();
@@ -101,73 +111,32 @@ class ShelfBookPackage {
   }
 }
 
-/// In-memory queue for live active wireless transfers.
-class SharedTransferItem {
+/// Discovered peer representation.
+class PeerDevice {
   final String id;
-  final Item book;
-  final String fromUser;
-  final String toUser;
-  final String code;
-  final DateTime sentAt;
-  final Uint8List? rawBytes;
+  final String name;
+  final String device;
+  final String how; // 'network' or 'room'
+  final String ip;
+  String status;
+  int? progress;
 
-  SharedTransferItem({
+  PeerDevice({
     required this.id,
-    required this.book,
-    required this.fromUser,
-    required this.toUser,
-    required this.code,
-    required this.sentAt,
-    this.rawBytes,
+    required this.name,
+    required this.device,
+    required this.how,
+    required this.ip,
+    this.status = 'Tap to send',
+    this.progress,
   });
 }
 
-class SharedTransferManager {
-  static final List<SharedTransferItem> pending = [];
-
-  static void send({
-    required Item book,
-    required String fromUser,
-    required String toUser,
-    required String code,
-    Uint8List? rawBytes,
-  }) {
-    pending.removeWhere((p) => p.book.title == book.title && p.fromUser == fromUser);
-    pending.add(SharedTransferItem(
-      id: newId(),
-      book: book.copy(),
-      fromUser: fromUser,
-      toUser: toUser,
-      code: code,
-      sentAt: DateTime.now(),
-      rawBytes: rawBytes,
-    ));
-  }
-
-  static SharedTransferItem? findByCode(String code) {
-    final clean = code.trim();
-    if (clean.isEmpty) return null;
-    try {
-      return pending.firstWhere((p) => p.code == clean);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static SharedTransferItem? findByRecipient(String toUser) {
-    final clean = toUser.trim().toLowerCase();
-    try {
-      return pending.firstWhere((p) => p.toUser.trim().toLowerCase() == clean || p.toUser == 'anyone');
-    } catch (_) {
-      return null;
-    }
-  }
-}
-
-/// Real live in-app wireless receiver server listening on port 8942.
+/// Live peer-to-peer server listening on port 8942.
 class LiveReceiverServer {
   static HttpServer? _server;
   static String? _localIp;
+  static String currentRoom = '';
 
   static bool get isListening => _server != null;
   static String? get localIp => _localIp;
@@ -196,19 +165,33 @@ class LiveReceiverServer {
       await refreshIp();
       _server = await HttpServer.bind(InternetAddress.anyIPv4, 8942);
       _server!.listen((HttpRequest request) async {
+        if (request.method == 'GET' && request.uri.path == '/peer-info') {
+          // Respond with peer identity
+          request.response
+            ..headers.contentType = ContentType.json
+            ..write(jsonEncode({
+              'id': store.profile.handle.isNotEmpty ? store.profile.handle : 'reader',
+              'name': store.profile.name.isNotEmpty ? store.profile.name : 'Reader',
+              'device': 'Shelfwise · Android',
+              'room': currentRoom,
+              'ip': _localIp ?? '',
+            }))
+            ..close();
+          return;
+        }
+
         if (request.method == 'POST' && request.uri.path == '/send-book') {
           try {
-            final sender = request.headers.value('x-sender') ?? 'Nearby Reader';
-            final code = request.headers.value('x-pair-code') ?? '';
-            final bodyBytes = await request.fold<List<int>>([], (prev, elem) => prev..addAll(elem));
-
-            if (code.isNotEmpty && code != store.pairingCode) {
+            if (!store.settings.acceptShared) {
               request.response
                 ..statusCode = HttpStatus.forbidden
-                ..write(jsonEncode({'error': 'Incorrect pairing code'}))
+                ..write(jsonEncode({'error': 'Recipient is not accepting shared books'}))
                 ..close();
               return;
             }
+
+            final sender = request.headers.value('x-sender') ?? 'Nearby Reader';
+            final bodyBytes = await request.fold<List<int>>([], (prev, elem) => prev..addAll(elem));
 
             final archive = ZipDecoder().decodeBytes(bodyBytes);
             ArchiveFile? jsonFile;
@@ -308,47 +291,148 @@ class _BookShareDialog extends StatefulWidget {
   State<_BookShareDialog> createState() => _BookShareDialogState();
 }
 
-class _BookShareDialogState extends State<_BookShareDialog> with SingleTickerProviderStateMixin {
-  late int _tab = widget.initialTab;
+class _BookShareDialogState extends State<_BookShareDialog>
+    with SingleTickerProviderStateMixin {
   Item? _selectedBook;
-  late final TextEditingController _codeCtrl = TextEditingController();
-  late final TextEditingController _targetIpCtrl = TextEditingController();
+  late final TextEditingController _roomCtrl = TextEditingController();
+  late final AnimationController _radarCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2400),
+  )..repeat();
 
-  String _selectedRecipient = '';
-  bool _permanent = true;
-  bool _sentSuccess = false;
-  bool _isSending = false;
+  final List<PeerDevice> _peers = [];
   bool _isExporting = false;
-  bool _isLiveReceiverOn = false;
-  String? _myIp;
+  bool _isScanning = false;
+  String _room = '';
 
   @override
   void initState() {
     super.initState();
     _selectedBook = widget.book ?? (store.allBooks.isNotEmpty ? store.allBooks.first : null);
-
-    if (store.pairedFriends.isNotEmpty) {
-      _selectedRecipient = store.pairedFriends.first;
-    } else {
-      _selectedRecipient = 'User 2 (Nearby)';
-    }
-
-    _initReceiverInfo();
+    _startLocalServerAndScan();
   }
 
-  Future<void> _initReceiverInfo() async {
-    _myIp = await LiveReceiverServer.refreshIp();
-    if (mounted) setState(() {});
+  Future<void> _startLocalServerAndScan() async {
+    await LiveReceiverServer.refreshIp();
+    if (!mounted) return;
+
+    await LiveReceiverServer.startServer(
+      context: context,
+      onAccepted: (book, sender) {
+        if (!mounted) return;
+        Buzz.medium();
+        Sfx.play('fanfare');
+        final size = MediaQuery.sizeOf(context);
+        confetti(Offset(size.width / 2, size.height * .4), count: 40);
+        _showReceivedBanner(book, sender);
+      },
+    );
+
+    _scanLocalPeers();
+  }
+
+  void _showReceivedBanner(Item book, String sender) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: const Color(0xFF2B1D10),
+        duration: const Duration(seconds: 7),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        content: Row(
+          children: [
+            Expanded(
+              child: Text(
+                '📚 $sender shared “${book.title}”. It’s on your Shared shelf.',
+                style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.white, fontSize: 13.5),
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                Navigator.of(context).pop();
+                store.changed();
+              },
+              child: const Text('View', style: TextStyle(color: Color(0xFFF26A21), fontWeight: FontWeight.w800)),
+            ),
+            TextButton(
+              onPressed: () {
+                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                for (final col in store.cols) {
+                  col.items.removeWhere((i) => i.id == book.id);
+                }
+                store.changed();
+                toast('Book removed from Shared shelf');
+              },
+              child: const Text('Undo', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w700)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _scanLocalPeers() async {
+    if (_isScanning) return;
+    setState(() => _isScanning = true);
+
+    final ip = LiveReceiverServer.localIp;
+    if (ip == null || !ip.contains('.')) {
+      setState(() => _isScanning = false);
+      return;
+    }
+
+    final subnet = ip.substring(0, ip.lastIndexOf('.'));
+    final currentHost = int.tryParse(ip.substring(ip.lastIndexOf('.') + 1)) ?? 0;
+
+    // Fast targeted scan around current IP
+    final candidates = <int>[];
+    for (int d = 1; d <= 20; d++) {
+      if (currentHost - d > 0) candidates.add(currentHost - d);
+      if (currentHost + d < 255) candidates.add(currentHost + d);
+    }
+
+    final client = HttpClient()..connectionTimeout = const Duration(milliseconds: 300);
+
+    for (final hostNum in candidates) {
+      if (!mounted) break;
+      final targetIp = '$subnet.$hostNum';
+      try {
+        final req = await client.getUrl(Uri.parse('http://$targetIp:8942/peer-info'));
+        final resp = await req.close();
+        if (resp.statusCode == HttpStatus.ok) {
+          final body = await utf8.decodeStream(resp);
+          final map = jsonDecode(body) as Map<String, dynamic>;
+          final id = map['id'] as String? ?? targetIp;
+          final name = map['name'] as String? ?? 'Reader';
+          final device = map['device'] as String? ?? 'Shelfwise · Android';
+          final peerRoom = map['room'] as String? ?? '';
+
+          if (!_peers.any((p) => p.ip == targetIp)) {
+            final how = (_room.isNotEmpty && peerRoom == _room) ? 'room' : 'network';
+            _peers.add(PeerDevice(
+              id: id,
+              name: name,
+              device: device,
+              how: how,
+              ip: targetIp,
+            ));
+            if (mounted) setState(() {});
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (mounted) setState(() => _isScanning = false);
   }
 
   @override
   void dispose() {
-    _codeCtrl.dispose();
-    _targetIpCtrl.dispose();
+    _roomCtrl.dispose();
+    _radarCtrl.dispose();
     super.dispose();
   }
 
-  /// Sends the selected book via native Bluetooth / Quick Share system sheet.
+  /// Sends the selected book via Bluetooth & Quick Share.
   Future<void> _shareViaBluetooth() async {
     final b = _selectedBook;
     if (b == null) {
@@ -374,12 +458,7 @@ class _BookShareDialogState extends State<_BookShareDialog> with SingleTickerPro
         sharePositionOrigin: box == null ? null : box.localToGlobal(Offset.zero) & box.size,
       ));
 
-      if (mounted) {
-        setState(() {
-          _isExporting = false;
-          _sentSuccess = true;
-        });
-      }
+      if (mounted) setState(() => _isExporting = false);
     } catch (e) {
       debugPrint('Bluetooth share error: $e');
       toast('Couldn’t package book for Bluetooth sharing');
@@ -387,21 +466,18 @@ class _BookShareDialogState extends State<_BookShareDialog> with SingleTickerPro
     }
   }
 
-  /// Sends the selected book directly to a receiver via local Wi-Fi / Hotspot HTTP POST.
-  Future<void> _shareViaDirectWifi() async {
+  /// Sends to a discovered peer device.
+  Future<void> _sendToPeer(PeerDevice peer) async {
     final b = _selectedBook;
     if (b == null) {
       toast('Select a book to send');
       return;
     }
 
-    final targetIp = _targetIpCtrl.text.trim();
-    if (targetIp.isEmpty) {
-      toast('Enter the receiver’s Wi-Fi / Hotspot IP address');
-      return;
-    }
-
-    setState(() => _isSending = true);
+    setState(() {
+      peer.status = 'Connecting…';
+      peer.progress = 10;
+    });
     Buzz.medium();
     Sfx.play('swoosh');
 
@@ -409,39 +485,57 @@ class _BookShareDialogState extends State<_BookShareDialog> with SingleTickerPro
       final packageFile = await ShelfBookPackage.export(b);
       final bytes = await packageFile.readAsBytes();
 
+      setState(() {
+        peer.status = 'Waiting for them…';
+        peer.progress = 40;
+      });
+
       final sender = store.profile.name.trim().isNotEmpty
           ? store.profile.name.trim()
           : (store.profile.first.isNotEmpty ? store.profile.first : 'Reader');
 
-      final uri = Uri.parse('http://$targetIp:8942/send-book');
-      final client = HttpClient();
-      client.connectionTimeout = const Duration(seconds: 10);
+      final uri = Uri.parse('http://${peer.ip}:8942/send-book');
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 12);
 
       final req = await client.postUrl(uri);
       req.headers.set('x-sender', sender);
-      req.headers.set('x-pair-code', store.pairingCode);
       req.headers.set('content-type', 'application/octet-stream');
       req.add(bytes);
+
+      setState(() {
+        peer.status = 'Sending cover… 100%';
+        peer.progress = 85;
+      });
 
       final resp = await req.close();
       final respBody = await utf8.decodeStream(resp);
 
       if (!mounted) return;
-      setState(() => _isSending = false);
 
       if (resp.statusCode == HttpStatus.ok) {
+        setState(() {
+          peer.status = 'Sent ✓ Added to their Shared shelf';
+          peer.progress = 100;
+        });
+        Buzz.medium();
         Sfx.play('fanfare');
-        toast('🎉 “${b.title}” was accepted by $targetIp!');
-        setState(() => _sentSuccess = true);
+        toast('🎉 “${b.title}” was added to ${peer.name}’s Shared shelf!');
       } else {
+        setState(() {
+          peer.status = 'They couldn’t take it';
+          peer.progress = null;
+        });
         Sfx.play('knock');
-        toast('Transfer declined or not accepted by recipient ($respBody)');
+        toast('Transfer declined: $respBody');
       }
     } catch (e) {
-      debugPrint('Direct Wi-Fi send error: $e');
+      debugPrint('Peer send error: $e');
       if (mounted) {
-        setState(() => _isSending = false);
-        toast('Could not reach $targetIp:8942. Ensure receiver is running Live Receiver on the same Wi-Fi/Hotspot.');
+        setState(() {
+          peer.status = 'Couldn’t connect. Tap to retry';
+          peer.progress = null;
+        });
+        toast('Could not reach ${peer.name} at ${peer.ip}:8942');
       }
     }
   }
@@ -466,7 +560,6 @@ class _BookShareDialogState extends State<_BookShareDialog> with SingleTickerPro
         : await f.readAsBytes();
 
     try {
-      // Decode archive to preview
       final archive = ZipDecoder().decodeBytes(bytes);
       ArchiveFile? jsonFile;
       for (final entry in archive) {
@@ -496,7 +589,7 @@ class _BookShareDialogState extends State<_BookShareDialog> with SingleTickerPro
 
       if (!ok) return;
 
-      final received = await ShelfBookPackage.unpack(bytes, fromUser: 'Bluetooth Peer', permanent: _permanent);
+      final received = await ShelfBookPackage.unpack(bytes, fromUser: 'Bluetooth Peer', permanent: true);
       if (received != null && mounted) {
         Buzz.medium();
         Sfx.play('fanfare');
@@ -511,144 +604,147 @@ class _BookShareDialogState extends State<_BookShareDialog> with SingleTickerPro
     }
   }
 
-  void _toggleLiveReceiver(bool on) async {
-    setState(() => _isLiveReceiverOn = on);
-    if (on) {
-      final started = await LiveReceiverServer.startServer(
-        context: context,
-        onAccepted: (book, sender) {
-          if (!mounted) return;
-          Buzz.medium();
-          Sfx.play('fanfare');
-          final size = MediaQuery.sizeOf(context);
-          confetti(Offset(size.width / 2, size.height * .4), count: 40);
-          toast('🎉 “${book.title}” from $sender added to “Shared books” shelf!');
-        },
-      );
-      if (started) {
-        _myIp = LiveReceiverServer.localIp;
-        toast('Live Receiver active! Ready to accept incoming wireless transfers.');
-      } else {
-        setState(() => _isLiveReceiverOn = false);
-        toast('Could not start receiver server on port 8942');
-      }
-    } else {
-      LiveReceiverServer.stopServer();
-      toast('Live Receiver stopped');
+  void _joinRoom(String code) {
+    final clean = code.trim().toUpperCase().replaceAll(RegExp(r'[^A-Z]'), '');
+    if (clean.length != 5) {
+      toast('Room code must be 5 letters (e.g. ABCDE)');
+      return;
     }
-    setState(() {});
+    setState(() {
+      _room = clean;
+      LiveReceiverServer.currentRoom = clean;
+    });
+    Buzz.tick();
+    toast('Joined room $_room');
+    _scanLocalPeers();
   }
 
-  void _doReceiveWithCode() async {
-    final code = _codeCtrl.text.trim();
-    if (code.isEmpty) {
-      toast('Enter sender’s 4-digit pairing code');
-      return;
+  void _createRoom() {
+    final rnd = Random();
+    final buffer = StringBuffer();
+    for (int i = 0; i < 5; i++) {
+      buffer.write(String.fromCharCode(65 + rnd.nextInt(26)));
     }
+    _joinRoom(buffer.toString());
+  }
 
-    final item = SharedTransferManager.findByCode(code);
-    if (item == null) {
-      toast('No pending transfer found for code $code. Ask sender to send or use Bluetooth file transfer.');
-      return;
-    }
-
-    final ok = await confirm(
-      'Accept Incoming Book?',
-      '“${item.book.title}” by ${item.book.author}\n\nFrom ${item.fromUser}. Accept and add to your “Shared books” shelf?',
-      yes: 'Accept',
-      no: 'Decline',
-      kind: Kind.pri,
-    );
-
-    if (!ok) return;
-
-    final received = store.receiveSharedBook(
-      item.book,
-      fromUser: item.fromUser,
-      permanent: _permanent,
-    );
-    SharedTransferManager.pending.remove(item);
-
-    if (mounted) {
-      Buzz.medium();
-      Sfx.play('fanfare');
-      final size = MediaQuery.sizeOf(context);
-      confetti(Offset(size.width / 2, size.height * .4), count: 38);
-      toast('🎉 “${received.title}” added to “Shared books” shelf!');
-      Navigator.of(context).pop();
-    }
+  void _leaveRoom() {
+    setState(() {
+      _room = '';
+      LiveReceiverServer.currentRoom = '';
+    });
+    Buzz.tick();
+    toast('Left room');
   }
 
   @override
   Widget build(BuildContext context) {
     return AppDialog(
-      title: 'Peer-to-Peer Book Share',
-      maxWidth: 430,
+      title: 'Share this book',
+      maxWidth: 420,
       children: [
-        // Tab switcher
+        // Header: Cover preview (tilted -4deg) + Title + Author
+        if (_selectedBook != null)
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: C.card,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: C.line),
+            ),
+            child: Row(
+              children: [
+                Transform.rotate(
+                  angle: -0.07,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: BookCover(_selectedBook!, w: 44, h: 62, titleSize: 7, authorSize: 5),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _selectedBook!.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: nu(14.5, FontWeight.w800, C.ink),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _selectedBook!.author,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: nu(12, FontWeight.w600, C.muted),
+                      ),
+                      const SizedBox(height: 4),
+                      Text('Only this selected book will be shared', style: nu(11, FontWeight.w700, C.brown)),
+                    ],
+                  ),
+                ),
+                if (store.allBooks.length > 1)
+                  IconButton(
+                    icon: const Icon(Icons.swap_horiz_rounded),
+                    tooltip: 'Change selected book',
+                    onPressed: () => _showPickBookMenu(store.allBooks.toList()),
+                  ),
+              ],
+            ),
+          ),
+        const SizedBox(height: 12),
+
+        // Bluetooth status banner from prototype
         Container(
-          padding: const EdgeInsets.all(4),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: C.field,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: C.inputLine),
+            color: const Color(0xFFE3F1DE),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFB5E0AE)),
           ),
           child: Row(
             children: [
-              Expanded(
-                child: GestureDetector(
-                  onTap: () {
-                    Buzz.tick();
-                    setState(() {
-                      _tab = 0;
-                      _sentSuccess = false;
-                    });
-                  },
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 180),
-                    padding: const EdgeInsets.symmetric(vertical: 9),
-                    decoration: BoxDecoration(
-                      color: _tab == 0 ? C.brown : Colors.transparent,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    alignment: Alignment.center,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Text('📤 ', style: TextStyle(fontSize: 14)),
-                        Text('Send Book',
-                            style: nu(13.5, FontWeight.w800, _tab == 0 ? Colors.white : C.ink)),
-                      ],
-                    ),
-                  ),
+              Container(
+                width: 10,
+                height: 10,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF2E9A3D),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(color: Color(0x402E9A3D), blurRadius: 4, spreadRadius: 2),
+                  ],
                 ),
               ),
+              const SizedBox(width: 10),
               Expanded(
-                child: GestureDetector(
-                  onTap: () {
-                    Buzz.tick();
-                    setState(() {
-                      _tab = 1;
-                      _sentSuccess = false;
-                    });
-                  },
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 180),
-                    padding: const EdgeInsets.symmetric(vertical: 9),
-                    decoration: BoxDecoration(
-                      color: _tab == 1 ? C.brown : Colors.transparent,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    alignment: Alignment.center,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Text('📥 ', style: TextStyle(fontSize: 14)),
-                        Text('Receive Book',
-                            style: nu(13.5, FontWeight.w800, _tab == 1 ? Colors.white : C.ink)),
-                      ],
-                    ),
+                child: Text(
+                  'Bluetooth is on. You’re ready to share.',
+                  style: nu(12.5, FontWeight.w700, const Color(0xFF245C2A)),
+                ),
+              ),
+              Pressable(
+                onTap: _isExporting ? null : _shareViaBluetooth,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2E7D32),
+                    borderRadius: BorderRadius.circular(8),
                   ),
+                  child: _isExporting
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.bluetooth_searching_rounded, size: 14, color: Colors.white),
+                            SizedBox(width: 4),
+                            Text('Scan & Beam', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: Colors.white)),
+                          ],
+                        ),
                 ),
               ),
             ],
@@ -656,7 +752,303 @@ class _BookShareDialogState extends State<_BookShareDialog> with SingleTickerPro
         ),
         const SizedBox(height: 14),
 
-        if (_tab == 0) _buildSendTab() else _buildReceiveTab(),
+        // Nearby Readers Section
+        Row(
+          children: [
+            Text('Nearby readers', style: nu(14, FontWeight.w800, C.ink)),
+            const Spacer(),
+            if (_isScanning)
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              GestureDetector(
+                onTap: _scanLocalPeers,
+                child: Text('Refresh', style: nu(12, FontWeight.w700, C.brown)),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+
+        if (_peers.isNotEmpty) ...[
+          for (final (i, p) in _peers.indexed)
+            Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: C.card,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: C.line),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: _peerPalette[i % _peerPalette.length],
+                      shape: BoxShape.circle,
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      p.name.isNotEmpty ? p.name.substring(0, 1).toUpperCase() : 'R',
+                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: Colors.white),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(p.name, style: nu(13.5, FontWeight.w800, C.ink)),
+                        Text(p.status,
+                            style: nu(11.5, FontWeight.w600,
+                                p.status.contains('✓') ? const Color(0xFF2E7D32) : C.muted)),
+                        if (p.progress != null) ...[
+                          const SizedBox(height: 4),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(2),
+                            child: LinearProgressIndicator(
+                              value: p.progress! / 100.0,
+                              minHeight: 4,
+                              color: const Color(0xFFF26A21),
+                              backgroundColor: C.field,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 2),
+                        Text(
+                          '${p.device} · ${p.how == 'room' ? 'In room $_room' : 'On your network'}',
+                          style: nu(10.5, FontWeight.w600, C.muted),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.arrow_upward_rounded, color: Color(0xFFB8692A)),
+                    onPressed: () => _sendToPeer(p),
+                    tooltip: 'Send to ${p.name}',
+                  ),
+                ],
+              ),
+            ),
+        ] else ...[
+          // Prototype pulsing radar view
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFDFBF7),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: C.line),
+            ),
+            child: Column(
+              children: [
+                SizedBox(
+                  width: 64,
+                  height: 64,
+                  child: AnimatedBuilder(
+                    animation: _radarCtrl,
+                    builder: (context, _) {
+                      final val = _radarCtrl.value;
+                      return Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          Container(
+                            width: 64 * val,
+                            height: 64 * val,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: const Color(0xFFF26A21).withValues(alpha: (1.0 - val).clamp(0.0, 0.7)),
+                                width: 2,
+                              ),
+                            ),
+                          ),
+                          Container(
+                            width: 16,
+                            height: 16,
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Color(0xFFF26A21),
+                              boxShadow: [
+                                BoxShadow(color: Color(0x66F26A21), blurRadius: 6, spreadRadius: 2),
+                              ],
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Looking for readers nearby…',
+                  style: nu(13, FontWeight.w800, C.ink),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Open Shelfwise on another device on the same Wi‑Fi, or share a 5-letter room code below.',
+                  textAlign: TextAlign.center,
+                  style: nu(11.5, FontWeight.w600, C.muted, 1.35),
+                ),
+              ],
+            ),
+          ),
+        ],
+        const SizedBox(height: 12),
+
+        // Room code container
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF1E3CD),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Not on the same Wi‑Fi?', style: nu(12.5, FontWeight.w800, C.ink)),
+              const SizedBox(height: 8),
+              if (_room.isNotEmpty)
+                Row(
+                  children: [
+                    Text('In room ', style: nu(13, FontWeight.w700, C.ink)),
+                    Text(_room, style: nu(15, FontWeight.w900, const Color(0xFFB8692A))),
+                    const Spacer(),
+                    Pressable(
+                      onTap: () {
+                        Clipboard.setData(ClipboardData(text: _room));
+                        toast('Room code copied');
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text('Copy', style: nu(12, FontWeight.w800, C.ink)),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Pressable(
+                      onTap: _leaveRoom,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text('Leave', style: nu(12, FontWeight.w800, C.dangerInk)),
+                      ),
+                    ),
+                  ],
+                )
+              else
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 90,
+                      child: TextField(
+                        controller: _roomCtrl,
+                        maxLength: 5,
+                        textCapitalization: TextCapitalization.characters,
+                        textAlign: TextAlign.center,
+                        style: nu(15, FontWeight.w900, C.ink),
+                        decoration: InputDecoration(
+                          hintText: 'ABCDE',
+                          counterText: '',
+                          contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                          filled: true,
+                          fillColor: Colors.white,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(color: C.line),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Pressable(
+                      onTap: () => _joinRoom(_roomCtrl.text),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF171717),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text('Join', style: nu(12.5, FontWeight.w800, Colors.white)),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Pressable(
+                      onTap: _createRoom,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEEDFC9),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text('New room', style: nu(12.5, FontWeight.w800, C.ink)),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Accept books shared with me
+        Row(
+          children: [
+            Checkbox(
+              value: store.settings.acceptShared,
+              activeColor: const Color(0xFFF26A21),
+              onChanged: (v) {
+                setState(() => store.settings.acceptShared = v ?? true);
+                store.changed();
+              },
+            ),
+            Expanded(
+              child: GestureDetector(
+                onTap: () {
+                  setState(() => store.settings.acceptShared = !store.settings.acceptShared);
+                  store.changed();
+                },
+                child: Text('Accept books shared with me', style: nu(13, FontWeight.w700, C.ink)),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+
+        // Import Received Bluetooth Book (.shelfbook)
+        Pressable(
+          onTap: _pickAndAcceptBluetoothBook,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFBF4EB),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE8D5C2)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.file_download_outlined, color: Color(0xFFB8692A), size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Import Received Bluetooth Book (.shelfbook)',
+                    style: nu(12.5, FontWeight.w800, const Color(0xFFB8692A)),
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded, size: 18, color: Color(0xFFB8692A)),
+              ],
+            ),
+          ),
+        ),
       ],
       actions: const [
         Btn('Close', onTap: null),
@@ -664,467 +1056,9 @@ class _BookShareDialogState extends State<_BookShareDialog> with SingleTickerPro
     );
   }
 
-  Widget _buildSendTab() {
-    final allBooks = store.allBooks.toList();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (_sentSuccess) ...[
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0xFFE8F5E9),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xFF81C784)),
-            ),
-            child: Column(
-              children: [
-                const Text('✨ 📡 🤝', style: TextStyle(fontSize: 26)),
-                const SizedBox(height: 6),
-                Text('Book Beam Initiated!', style: nu(15.5, FontWeight.w800, const Color(0xFF2E7D32))),
-                const SizedBox(height: 4),
-                Text(
-                  '“${_selectedBook?.title}” packaged and ready for recipient acceptance.',
-                  textAlign: TextAlign.center,
-                  style: nu(12.5, FontWeight.w600, const Color(0xFF1B5E20)),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-        ],
-
-        // Selected book card
-        if (_selectedBook != null)
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: C.card,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: C.line),
-            ),
-            child: Row(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: BookCover(_selectedBook!, w: 46, h: 64, titleSize: 8, authorSize: 6),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(_selectedBook!.title,
-                          maxLines: 2, overflow: TextOverflow.ellipsis, style: nu(14, FontWeight.w800)),
-                      Text(_selectedBook!.author,
-                          maxLines: 1, overflow: TextOverflow.ellipsis, style: nu(12, FontWeight.w600, C.muted)),
-                      const SizedBox(height: 4),
-                      Text('Only this selected book will be shared', style: nu(11, FontWeight.w700, C.brown)),
-                    ],
-                  ),
-                ),
-                if (allBooks.length > 1)
-                  IconButton(
-                    icon: const Icon(Icons.swap_horiz_rounded),
-                    tooltip: 'Change selected book',
-                    onPressed: () {
-                      _showPickBookMenu(allBooks);
-                    },
-                  ),
-              ],
-            ),
-          ),
-        const SizedBox(height: 14),
-
-        // Primary: Bluetooth / Quick Share
-        Pressable(
-          onTap: _isExporting ? null : _shareViaBluetooth,
-          child: Container(
-            height: 50,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF1565C0), Color(0xFF0D47A1)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF1565C0).withValues(alpha: .35),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
-            alignment: Alignment.center,
-            child: _isExporting
-                ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white),
-                  )
-                : const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.bluetooth_searching_rounded, size: 20, color: Colors.white),
-                      SizedBox(width: 8),
-                      Text('Scan & Share via Bluetooth / Quick Share',
-                          style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: Colors.white)),
-                    ],
-                  ),
-          ),
-        ),
-        const SizedBox(height: 12),
-
-        // Secondary: Direct Wi-Fi / Hotspot IP Beam
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: const Color(0xFFFAF7F2),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: C.line),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Text('📶 ', style: TextStyle(fontSize: 15)),
-                  Text('Direct Wireless Beam (Wi-Fi / Hotspot)', style: nu(13, FontWeight.w800, C.ink)),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text('Beam directly to User 2 on the same network running Live Receiver:',
-                  style: nu(11.5, FontWeight.w600, C.muted)),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: AppInput(
-                      _targetIpCtrl,
-                      'Receiver IP (e.g. 192.168.1.50)',
-                      type: TextInputType.text,
-                      autofocus: false,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Pressable(
-                    onTap: _isSending ? null : _shareViaDirectWifi,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: C.brown,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: _isSending
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                            )
-                          : Text('Beam', style: nu(13, FontWeight.w800, Colors.white)),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-
-        // 4-Digit Pairing code indicator
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: BoxDecoration(
-            color: const Color(0xFFFBF4EB),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFFE8D5C2)),
-          ),
-          child: Row(
-            children: [
-              const Text('🔢', style: TextStyle(fontSize: 18)),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Your 4-Digit Security Code', style: nu(12.5, FontWeight.w800, C.brown)),
-                    Text('Receiver accepts using this verification code', style: nu(11.5, FontWeight.w600, C.muted)),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFD4B996)),
-                ),
-                child: Text(store.pairingCode, style: nu(16, FontWeight.w900, C.brown)),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildReceiveTab() {
-    final pendingTransfers = SharedTransferManager.pending;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // 1. Accept Received Bluetooth Book
-        Pressable(
-          onTap: _pickAndAcceptBluetoothBook,
-          child: Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF2E7D32), Color(0xFF1B5E20)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF2E7D32).withValues(alpha: .3),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: .2),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  alignment: Alignment.center,
-                  child: const Icon(Icons.file_download_done_rounded, color: Colors.white, size: 24),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Import Received Bluetooth Book',
-                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white)),
-                      const SizedBox(height: 2),
-                      Text('Pick & accept .shelfbook file received via Bluetooth',
-                          style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Colors.white.withValues(alpha: .85))),
-                    ],
-                  ),
-                ),
-                const Icon(Icons.chevron_right_rounded, color: Colors.white),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 14),
-
-        // 2. Live Wireless Receiver Toggle
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: C.card,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: _isLiveReceiverOn ? const Color(0xFF81C784) : C.line),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Text('📡 ', style: TextStyle(fontSize: 18)),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Live Wireless Receiver', style: nu(13.5, FontWeight.w800, C.ink)),
-                        Text(
-                          _isLiveReceiverOn
-                              ? 'Listening on ${_myIp ?? 'Local Network'}:8942'
-                              : 'Accept real-time beams from nearby senders',
-                          style: nu(11.5, FontWeight.w600, _isLiveReceiverOn ? const Color(0xFF2E7D32) : C.muted),
-                        ),
-                      ],
-                    ),
-                  ),
-                  AppSwitch(
-                    value: _isLiveReceiverOn,
-                    onChanged: _toggleLiveReceiver,
-                  ),
-                ],
-              ),
-              if (_isLiveReceiverOn && _myIp != null) ...[
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE8F5E9),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.check_circle_rounded, size: 14, color: Color(0xFF2E7D32)),
-                      const SizedBox(width: 6),
-                      Text('Sender can beam to IP: $_myIp', style: nu(12, FontWeight.w700, const Color(0xFF2E7D32))),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-
-        // 3. Connect via 4-Digit Code
-        Text('Accept Transfer with 4-Digit Code', style: nu(13, FontWeight.w800, C.ink)),
-        const SizedBox(height: 6),
-        Row(
-          children: [
-            Expanded(
-              child: AppInput(
-                _codeCtrl,
-                'e.g. ${store.pairingCode}',
-                type: TextInputType.number,
-                autofocus: false,
-                maxLength: 4,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Pressable(
-              onTap: _doReceiveWithCode,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: C.brown,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                alignment: Alignment.center,
-                child: Text('Accept', style: nu(13, FontWeight.w800, Colors.white)),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-
-        // Active incoming list
-        if (pendingTransfers.isNotEmpty) ...[
-          Text('Incoming Book Transfers', style: nu(13, FontWeight.w800, C.ink)),
-          const SizedBox(height: 8),
-          for (final t in pendingTransfers)
-            Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: C.card,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFD4B996)),
-              ),
-              child: Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: BookCover(t.book, w: 42, h: 58, titleSize: 7, authorSize: 5),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(t.book.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: nu(13.5, FontWeight.w800)),
-                        Text('From ${t.fromUser} · Code ${t.code}', style: nu(12, FontWeight.w600, C.brown)),
-                      ],
-                    ),
-                  ),
-                  Pressable(
-                    onTap: () async {
-                      final ok = await confirm(
-                        'Accept Book Transfer?',
-                        '“${t.book.title}” by ${t.book.author}\n\nFrom ${t.fromUser}. Add to your “Shared books” shelf?',
-                        yes: 'Accept',
-                        no: 'Decline',
-                        kind: Kind.pri,
-                      );
-                      if (ok) {
-                        final received = store.receiveSharedBook(t.book, fromUser: t.fromUser, permanent: _permanent);
-                        SharedTransferManager.pending.remove(t);
-                        if (mounted) {
-                          Buzz.medium();
-                          Sfx.play('fanfare');
-                          final size = MediaQuery.sizeOf(context);
-                          confetti(Offset(size.width / 2, size.height * .4), count: 38);
-                          toast('🎉 “${received.title}” added to “Shared books” shelf!');
-                          Navigator.of(context).pop();
-                        }
-                      }
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: C.brown,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text('Accept', style: nu(12.5, FontWeight.w800, Colors.white)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ] else ...[
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF9F5F0),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: C.line),
-            ),
-            child: Row(
-              children: [
-                const Text('ℹ️', style: TextStyle(fontSize: 20)),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'No incoming transfers in queue. Senders can beam books via Bluetooth or live network; tap “Import Received Bluetooth Book” above to accept any incoming book file.',
-                    style: nu(11.5, FontWeight.w600, C.muted, 1.35),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-        ],
-
-        // Permanent friend connection toggle
-        Row(
-          children: [
-            Checkbox(
-              value: _permanent,
-              activeColor: C.brown,
-              onChanged: (v) => setState(() => _permanent = v ?? true),
-            ),
-            Expanded(
-              child: GestureDetector(
-                onTap: () => setState(() => _permanent = !_permanent),
-                child: Text('Save sender to my permanent friends list', style: nu(12.5, FontWeight.w600, C.ink)),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
   void _showPickBookMenu(List<Item> allBooks) {
     openDialog((ctx) => AppDialog(
-          title: 'Select book to beam',
+          title: 'Select book to share',
           maxWidth: 360,
           children: [
             for (final b in allBooks)

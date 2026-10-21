@@ -595,14 +595,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final free = shelfMax - n;
     final hasAnyLights = store.cols.any((col) => col.mainLights != null || col.subLights != null);
     final curLights = c.lights(sub: sub);
+    String noteSize = 'm';
 
     openDialog((ctx) => StatefulBuilder(
-          builder: (ctx, set) => AppDialog(
-            title: 'Decorate this ${sub ? 'sub shelf' : 'shelf'}',
-            maxWidth: 400,
-            children: [
-              Sub(isFull
-                  ? 'The 10 object spots are full, but you can still add stickers and lights.'
+          builder: (ctx, set) {
+            return AppDialog(
+              title: 'Decorate this ${sub ? 'sub shelf' : 'shelf'}',
+              maxWidth: 400,
+              children: [
+                Sub(isFull
+                    ? 'The 10 object spots are full, but you can still add stickers and lights.'
                   : '${plural(free, 'free spot')} for objects. Adding a book to a full shelf replaces the last object.'),
               const SizedBox(height: 8),
 
@@ -805,6 +807,31 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 Text('${c.notesFor(sub: sub).length}/10', style: nu(12, FontWeight.w600, C.muted)),
               ]),
               const SizedBox(height: 8),
+              Row(children: [
+                for (final (sz, label) in const [('s', 'S Small'), ('m', 'M Medium'), ('l', 'L Large')])
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: GestureDetector(
+                      onTap: () => set(() => noteSize = sz),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: noteSize == sz ? C.brown : C.chip,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: noteSize == sz ? C.brown : const Color(0x33000000),
+                            width: noteSize == sz ? 2 : 1,
+                          ),
+                        ),
+                        child: Text(
+                          label,
+                          style: nu(12, FontWeight.w800, noteSize == sz ? Colors.white : C.chipText),
+                        ),
+                      ),
+                    ),
+                  ),
+              ]),
+              const SizedBox(height: 10),
               Wrap(spacing: 10, runSpacing: 8, children: [
                 for (final entry in stickyColorDefs.entries)
                   Pressable(
@@ -814,7 +841,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         return;
                       }
                       Navigator.pop(ctx);
-                      if (store.addStickyNote(c, text: 'Reading note…', color: entry.key, ink: '#1c2f6b', sub: sub)) {
+                      if (store.addStickyNote(c, text: 'Reading note…', color: entry.key, ink: '#1c2f6b', sub: sub, size: noteSize)) {
                         Sfx.play('pop');
                         toast('Sticky note pinned to shelf! Tap it on the shelf to write or edit.');
                       }

@@ -41,7 +41,8 @@ Color parseStickyInk(String hex) =>
 /// - Realistic multi-layered paper drop shadows.
 /// - Dynamic tilt while dragging.
 /// - Paper rip tear animation with sound.
-/// - Tap to view/edit text, paper color, and ink color.
+/// - Customizable size: Small ('s'), Medium ('m'), Large ('l').
+/// - Tap to view/edit text, paper color, ink color, and size.
 class StickyNoteWidget extends StatefulWidget {
   final StickyNote note;
   final double width;
@@ -77,6 +78,42 @@ class _StickyNoteWidgetState extends State<StickyNoteWidget>
   double _dragVx = 0.0;
   bool _isTorn = false;
 
+  double get effectiveWidth {
+    switch (widget.note.size) {
+      case 's':
+        return 110.0;
+      case 'l':
+        return 176.0;
+      case 'm':
+      default:
+        return widget.width;
+    }
+  }
+
+  double get effectiveMinHeight {
+    switch (widget.note.size) {
+      case 's':
+        return 90.0;
+      case 'l':
+        return 144.0;
+      case 'm':
+      default:
+        return widget.minHeight;
+    }
+  }
+
+  double get effectiveFontScale {
+    switch (widget.note.size) {
+      case 's':
+        return 0.85;
+      case 'l':
+        return 1.22;
+      case 'm':
+      default:
+        return 1.0;
+    }
+  }
+
   @override
   void dispose() {
     _anim.dispose();
@@ -97,11 +134,12 @@ class _StickyNoteWidgetState extends State<StickyNoteWidget>
     Buzz.tick();
     openDialog((ctx) => _StickyNoteEditorDialog(
           note: widget.note,
-          onSave: (text, color, ink) {
+          onSave: (text, color, ink, size) {
             setState(() {
               widget.note.text = text;
               widget.note.color = color;
               widget.note.ink = ink;
+              widget.note.size = size;
             });
             widget.onEdited?.call();
           },
@@ -111,11 +149,14 @@ class _StickyNoteWidgetState extends State<StickyNoteWidget>
 
   @override
   Widget build(BuildContext context) {
+    final curW = effectiveWidth;
+    final curH = effectiveMinHeight;
+
     if (_isTorn) {
       // Split tear animation: paper rips into halves that drift away
       return SizedBox(
-        width: widget.width,
-        height: widget.minHeight,
+        width: curW,
+        height: curH,
         child: TweenAnimationBuilder<double>(
           tween: Tween(begin: 0.0, end: 1.0),
           duration: const Duration(milliseconds: 380),
@@ -129,8 +170,8 @@ class _StickyNoteWidgetState extends State<StickyNoteWidget>
                 Positioned(
                   left: -18 * t,
                   top: 26 * t,
-                  width: widget.width * 0.52,
-                  height: widget.minHeight,
+                  width: curW * 0.52,
+                  height: curH,
                   child: Transform.rotate(
                     angle: -0.18 * t,
                     child: Opacity(
@@ -151,8 +192,8 @@ class _StickyNoteWidgetState extends State<StickyNoteWidget>
                 Positioned(
                   right: -18 * t,
                   top: 32 * t,
-                  width: widget.width * 0.52,
-                  height: widget.minHeight,
+                  width: curW * 0.52,
+                  height: curH,
                   child: Transform.rotate(
                     angle: 0.22 * t,
                     child: Opacity(
@@ -178,6 +219,7 @@ class _StickyNoteWidgetState extends State<StickyNoteWidget>
 
     final paperColor = parseStickyColor(widget.note.color);
     final inkColor = parseStickyInk(widget.note.ink);
+    final fontScale = effectiveFontScale;
 
     return GestureDetector(
       onTap: _openEditor,
@@ -229,8 +271,8 @@ class _StickyNoteWidgetState extends State<StickyNoteWidget>
           );
         },
         child: Container(
-          width: widget.width,
-          constraints: BoxConstraints(minHeight: widget.minHeight),
+          width: curW,
+          constraints: BoxConstraints(minHeight: curH),
           decoration: BoxDecoration(
             color: paperColor,
             borderRadius: BorderRadius.circular(4),
@@ -259,25 +301,25 @@ class _StickyNoteWidgetState extends State<StickyNoteWidget>
             mainAxisSize: MainAxisSize.min,
             children: [
               // Top Tape strip with red pushpin
-              _TapeWithPin(paperColor: paperColor),
+              _TapeWithPin(paperColor: paperColor, height: (24 * fontScale).clamp(20.0, 28.0)),
 
               // Note handwritten body
               Padding(
-                padding: const EdgeInsets.fromLTRB(10, 6, 10, 14),
+                padding: EdgeInsets.fromLTRB(10 * fontScale, 6 * fontScale, 10 * fontScale, 14 * fontScale),
                 child: Text(
                   widget.note.text.trim().isEmpty
                       ? 'Write something…'
                       : widget.note.text,
                   style: TextStyle(
                     fontFamily: 'Caveat',
-                    fontSize: 16.5,
+                    fontSize: 16.5 * fontScale,
                     height: 1.25,
                     fontWeight: FontWeight.w700,
                     color: widget.note.text.trim().isEmpty
                         ? inkColor.withValues(alpha: 0.45)
                         : inkColor,
                   ),
-                  maxLines: 6,
+                  maxLines: 7,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -292,12 +334,13 @@ class _StickyNoteWidgetState extends State<StickyNoteWidget>
 /// Semi-transparent tape with central 3D pushpin / thumbtack
 class _TapeWithPin extends StatelessWidget {
   final Color paperColor;
-  const _TapeWithPin({required this.paperColor});
+  final double height;
+  const _TapeWithPin({required this.paperColor, this.height = 24});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 24,
+      height: height,
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.42),
         border: const Border(
@@ -313,20 +356,25 @@ class _TapeWithPin extends StatelessWidget {
       ),
       alignment: Alignment.center,
       child: Container(
-        width: 13,
-        height: 13,
+        width: (height * 0.54).clamp(10.0, 15.0),
+        height: (height * 0.54).clamp(10.0, 15.0),
         decoration: const BoxDecoration(
           shape: BoxShape.circle,
           gradient: RadialGradient(
             center: Alignment(-0.35, -0.35),
-            colors: [Color(0xFFFF9A85), Color(0xFFD6402B)],
-            stops: [0.3, 1.0],
+            radius: 0.8,
+            colors: [
+              Color(0xFFFF9A85),
+              Color(0xFFD6402B),
+              Color(0xFF8E1B0D),
+            ],
+            stops: [0.0, 0.65, 1.0],
           ),
           boxShadow: [
             BoxShadow(
-              color: Color(0x4D000000),
-              offset: Offset(0, 1.5),
-              blurRadius: 2,
+              color: Color(0x55000000),
+              offset: Offset(0, 2),
+              blurRadius: 2.5,
             ),
           ],
         ),
@@ -335,10 +383,10 @@ class _TapeWithPin extends StatelessWidget {
   }
 }
 
-/// Modal dialog for editing a sticky note's text, paper color, and ink color.
+/// Modal dialog for editing note text, selecting size, paper color, or tearing it off.
 class _StickyNoteEditorDialog extends StatefulWidget {
   final StickyNote note;
-  final void Function(String text, String color, String ink) onSave;
+  final void Function(String text, String color, String ink, String size) onSave;
   final VoidCallback onTear;
 
   const _StickyNoteEditorDialog({
@@ -356,6 +404,7 @@ class _StickyNoteEditorDialogState extends State<_StickyNoteEditorDialog> {
       TextEditingController(text: widget.note.text);
   late String _color = widget.note.color;
   late String _ink = widget.note.ink;
+  late String _size = widget.note.size;
 
   @override
   void dispose() {
@@ -370,11 +419,11 @@ class _StickyNoteEditorDialogState extends State<_StickyNoteEditorDialog> {
 
     return AppDialog(
       title: 'Sticky note',
-      maxWidth: 360,
+      maxWidth: 370,
       actions: [
         Btn(
           'Tear off ✂',
-          kind: Kind.sub,
+          kind: Kind.dng,
           onTap: () {
             Navigator.of(context).pop();
             widget.onTear();
@@ -385,7 +434,7 @@ class _StickyNoteEditorDialogState extends State<_StickyNoteEditorDialog> {
           'Done',
           kind: Kind.pri,
           onTap: () {
-            widget.onSave(_ctrl.text.trim(), _color, _ink);
+            widget.onSave(_ctrl.text.trim(), _color, _ink, _size);
             toast('Note updated');
             return true;
           },
@@ -416,7 +465,7 @@ class _StickyNoteEditorDialogState extends State<_StickyNoteEditorDialog> {
                 autofocus: widget.note.text.isEmpty,
                 style: TextStyle(
                   fontFamily: 'Caveat',
-                  fontSize: 18,
+                  fontSize: _size == 'l' ? 20 : (_size == 's' ? 16 : 18),
                   fontWeight: FontWeight.w700,
                   height: 1.3,
                   color: curInk,
@@ -439,6 +488,44 @@ class _StickyNoteEditorDialogState extends State<_StickyNoteEditorDialog> {
           ),
         ),
         const SizedBox(height: 16),
+
+        // Size Selector
+        Text('Note size', style: nu(13, FontWeight.w800, C.chipText)),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            for (final (sz, label) in const [
+              ('s', 'S Small'),
+              ('m', 'M Medium'),
+              ('l', 'L Large'),
+            ])
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Pressable(
+                  onTap: () {
+                    Buzz.tick();
+                    setState(() => _size = sz);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: _size == sz ? C.brown : C.chip,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: _size == sz ? C.brown : const Color(0x33000000),
+                        width: _size == sz ? 2 : 1,
+                      ),
+                    ),
+                    child: Text(
+                      label,
+                      style: nu(12.5, FontWeight.w800, _size == sz ? Colors.white : C.chipText),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 14),
 
         // Color Swatches from notes.html
         Text('Paper color', style: nu(13, FontWeight.w800, C.chipText)),
@@ -465,10 +552,10 @@ class _StickyNoteEditorDialogState extends State<_StickyNoteEditorDialog> {
                           : const Color(0x33000000),
                       width: _color.toLowerCase() == entry.key ? 2.5 : 1,
                     ),
-                    boxShadow: [
+                    boxShadow: const [
                       BoxShadow(
-                        color: const Color(0x18000000),
-                        offset: const Offset(1, 2),
+                        color: Color(0x18000000),
+                        offset: Offset(1, 2),
                         blurRadius: 3,
                       ),
                     ],

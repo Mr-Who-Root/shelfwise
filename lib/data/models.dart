@@ -177,6 +177,7 @@ class StickyNote {
   String text;
   String color; // e.g. '#ffe27a', '#f8b4c6', '#bfe3b0', '#a8d4f2', '#ffbe85', '#d3c2f1'
   String ink; // e.g. '#1c2f6b', '#171717', '#c62828', '#2e7d32'
+  String size; // 's' (small), 'm' (medium), 'l' (large)
   double x; // 0..100 percentage
   double y; // 0..100 percentage
   double r; // rotation in degrees
@@ -190,6 +191,7 @@ class StickyNote {
     this.text = '',
     this.color = '#ffe27a',
     this.ink = '#1c2f6b',
+    this.size = 'm',
     this.x = 50.0,
     this.y = 50.0,
     this.r = 0.0,
@@ -205,6 +207,7 @@ class StickyNote {
         't': text,
         'c': color,
         'ink': ink,
+        if (size != 'm') 'sz': size,
         'x': x,
         'y': y,
         'r': r,
@@ -219,6 +222,7 @@ class StickyNote {
         text: (j['t'] ?? j['text'] ?? '') as String,
         color: (j['c'] ?? j['color'] ?? '#ffe27a') as String,
         ink: (j['ink'] ?? '#1c2f6b') as String,
+        size: (j['sz'] ?? j['size'] ?? 'm') as String,
         x: (j['x'] as num?)?.toDouble() ?? 50.0,
         y: (j['y'] as num?)?.toDouble() ?? 50.0,
         r: (j['r'] as num?)?.toDouble() ?? 0.0,
@@ -436,6 +440,7 @@ class Settings {
   String skipVersion;
   String shelfStyle; // glass, wood, iron, plastic
   String pet; // none, cat, dog, rabbit, bird
+  bool acceptShared;
 
   Settings({
     this.reminders = false,
@@ -454,6 +459,7 @@ class Settings {
     this.skipVersion = '',
     this.shelfStyle = 'glass',
     this.pet = 'none',
+    this.acceptShared = true,
   });
 
   Map<String, dynamic> toJson() => {
@@ -473,6 +479,7 @@ class Settings {
         if (skipVersion.isNotEmpty) 'skipVersion': skipVersion,
         'shelfStyle': shelfStyle,
         'pet': pet,
+        if (!acceptShared) 'acceptShared': false,
       };
   factory Settings.fromJson(Map<String, dynamic> j) => Settings(
         reminders: j['reminders'] == true,
@@ -491,5 +498,6 @@ class Settings {
         skipVersion: (j['skipVersion'] ?? '') as String,
         shelfStyle: (j['shelfStyle'] ?? 'glass') as String,
         pet: (j['pet'] ?? 'none') as String,
+        acceptShared: j['acceptShared'] != false,
       );
 }

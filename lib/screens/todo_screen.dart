@@ -34,10 +34,11 @@ class _TodoScreenState extends State<TodoScreen> {
 
   void _addStickyNoteDialog() {
     Buzz.tick();
+    String selectedColor = '#ffe27a';
+    String selectedSize = 'm';
+    final textCtrl = TextEditingController(text: '');
     openDialog((ctx) => StatefulBuilder(
           builder: (ctx, set) {
-            String selectedColor = '#ffe27a';
-            final textCtrl = TextEditingController(text: '');
             return AppDialog(
               title: 'New sticky note',
               maxWidth: 360,
@@ -49,6 +50,7 @@ class _TodoScreenState extends State<TodoScreen> {
                     text: text.isEmpty ? 'Reading to-do note…' : text,
                     color: selectedColor,
                     ink: '#1c2f6b',
+                    size: selectedSize,
                   );
                   Sfx.play('pop');
                   toast('Sticky note added to To-do!');
@@ -70,11 +72,11 @@ class _TodoScreenState extends State<TodoScreen> {
                     controller: textCtrl,
                     maxLines: 3,
                     autofocus: true,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'Caveat',
-                      fontSize: 18,
+                      fontSize: selectedSize == 'l' ? 20 : (selectedSize == 's' ? 16 : 18),
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF1C2F6B),
+                      color: const Color(0xFF1C2F6B),
                     ),
                     decoration: const InputDecoration(
                       hintText: 'Write a thought, note, or reminder…',
@@ -88,6 +90,39 @@ class _TodoScreenState extends State<TodoScreen> {
                       isDense: true,
                     ),
                   ),
+                ),
+                const SizedBox(height: 14),
+                Text('Note size', style: nu(13, FontWeight.w800, C.chipText)),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    for (final (sz, label) in const [
+                      ('s', 'S Small'),
+                      ('m', 'M Medium'),
+                      ('l', 'L Large'),
+                    ])
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: GestureDetector(
+                          onTap: () => set(() => selectedSize = sz),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                            decoration: BoxDecoration(
+                              color: selectedSize == sz ? C.brown : C.chip,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: selectedSize == sz ? C.brown : const Color(0x33000000),
+                                width: selectedSize == sz ? 2 : 1,
+                              ),
+                            ),
+                            child: Text(
+                              label,
+                              style: nu(12.5, FontWeight.w800, selectedSize == sz ? Colors.white : C.chipText),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 14),
                 Text('Paper color', style: nu(13, FontWeight.w800, C.chipText)),

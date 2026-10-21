@@ -318,6 +318,7 @@ class AppStore extends ChangeNotifier {
     required String color,
     required String ink,
     required bool sub,
+    String size = 'm',
   }) {
     if (c.notesFor(sub: sub).length >= 10) return false;
     final rnd = Random();
@@ -328,6 +329,7 @@ class AppStore extends ChangeNotifier {
       text: text,
       color: color,
       ink: ink,
+      size: size,
       x: x,
       y: y,
       r: r,
@@ -338,12 +340,13 @@ class AppStore extends ChangeNotifier {
     return true;
   }
 
-  void updateStickyNote(Collection c, String id, {String? text, String? color, String? ink}) {
+  void updateStickyNote(Collection c, String id, {String? text, String? color, String? ink, String? size}) {
     for (final n in c.stickyNotes) {
       if (n.id == id) {
         if (text != null) n.text = text;
         if (color != null) n.color = color;
         if (ink != null) n.ink = ink;
+        if (size != null) n.size = size;
         changed();
         break;
       }
@@ -366,13 +369,14 @@ class AppStore extends ChangeNotifier {
     }
   }
 
-  void addTodoStickyNote({required String text, required String color, required String ink}) {
+  void addTodoStickyNote({required String text, required String color, required String ink, String size = 'm'}) {
     final rnd = Random();
     final r = (rnd.nextDouble() * 6.0 - 3.0);
     todoNotes.add(StickyNote(
       text: text,
       color: color,
       ink: ink,
+      size: size,
       r: r,
       isTodo: true,
       x: 10.0 + rnd.nextDouble() * 40.0,
@@ -381,12 +385,13 @@ class AppStore extends ChangeNotifier {
     changed();
   }
 
-  void updateTodoStickyNote(String id, {String? text, String? color, String? ink}) {
+  void updateTodoStickyNote(String id, {String? text, String? color, String? ink, String? size}) {
     for (final n in todoNotes) {
       if (n.id == id) {
         if (text != null) n.text = text;
         if (color != null) n.color = color;
         if (ink != null) n.ink = ink;
+        if (size != null) n.size = size;
         changed();
         break;
       }

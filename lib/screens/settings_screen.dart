@@ -7,6 +7,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../art.dart';
+import '../data/models.dart';
 import '../data/store.dart';
 import '../look.dart';
 import '../services/book_files.dart';
