@@ -10,6 +10,7 @@ import '../services/notify.dart';
 import '../services/sfx.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import '../widgets/dialogs.dart';
 
 Route<void> introRoute() => PageRouteBuilder(
       transitionDuration: const Duration(milliseconds: 450),
@@ -17,7 +18,7 @@ Route<void> introRoute() => PageRouteBuilder(
       transitionsBuilder: (_, a, _, c) => FadeTransition(opacity: a, child: c),
     );
 
-/// Welcome → your name → notifications. Shown on first open (and from "Replay intro").
+/// Welcome → Google sign in → notifications. Shown on first open (and from "Replay intro").
 class Onboarding extends StatefulWidget {
   final bool replay;
   const Onboarding({super.key, this.replay = false});
@@ -27,8 +28,8 @@ class Onboarding extends StatefulWidget {
 
 class _OnboardingState extends State<Onboarding> {
   int _step = 0;
-  late final _name = TextEditingController(text: widget.replay ? store.profile.name : '');
-  bool _sample = false;
+  late final _email = TextEditingController(text: widget.replay ? store.profile.email : '');
+  bool _sample = true;
 
   @override
   void initState() {
@@ -38,7 +39,7 @@ class _OnboardingState extends State<Onboarding> {
 
   @override
   void dispose() {
-    _name.dispose();
+    _email.dispose();
     Look.overlay();
     super.dispose();
   }
@@ -49,10 +50,12 @@ class _OnboardingState extends State<Onboarding> {
   }
 
   void _finish() {
-    final n = _name.text.trim();
+    final em = _email.text.trim();
     if (widget.replay) {
-      if (n.isNotEmpty && n != store.profile.name) {
+      if (em.isNotEmpty && em != store.profile.email) {
+        final n = AppStore.nameFromEmail(em);
         store.profile
+          ..email = em
           ..name = n
           ..handle = AppStore.handleFor(n);
         store.changed();
@@ -60,7 +63,7 @@ class _OnboardingState extends State<Onboarding> {
       Navigator.of(context).pop();
       return;
     }
-    store.setupFresh(name: n, sample: _sample);
+    store.setupFresh(sample: _sample, email: em);
     Sfx.play('reset');
   }
 
@@ -83,8 +86,25 @@ class _OnboardingState extends State<Onboarding> {
             child: SlideTransition(position: Tween(begin: const Offset(.08, 0), end: Offset.zero).animate(a), child: c),
           ),
           child: switch (_step) {
-            0 => _Welcome(key: const ValueKey(0), onGo: _next),
-            1 => _NameStep(key: const ValueKey(1), name: _name, replay: widget.replay, sample: _sample, onSample: (v) => setState(() => _sample = v), onGo: _next),
+            0 => _Welcome(
+                key: const ValueKey(0),
+                email: _email,
+                replay: widget.replay,
+                sample: _sample,
+                onSample: (v) => setState(() => _sample = v),
+                onSelectEmail: (em) {
+                  _email.text = em;
+                  _finish();
+                },
+              ),
+            1 => _GoogleStep(
+                key: const ValueKey(1),
+                email: _email,
+                replay: widget.replay,
+                sample: _sample,
+                onSample: (v) => setState(() => _sample = v),
+                onGo: _next,
+              ),
             _ => _NotifyStep(key: const ValueKey(2), onDone: _finish),
           },
         ),
@@ -112,12 +132,13 @@ class _Page extends StatelessWidget {
   }
 }
 
-/// The black call-to-action with an orange arrow.
+/// The black call-to-action with an orange arrow (and optional leading icon).
 class _Cta extends StatefulWidget {
   final String label;
   final Widget trailing;
+  final Widget? leading;
   final VoidCallback onTap;
-  const _Cta(this.label, {required this.onTap, this.trailing = const Text('⟶', style: TextStyle(fontFamily: F.hand, fontSize: 26, color: C.orange))});
+  const _Cta(this.label, {required this.onTap, this.leading, this.trailing = const Text('⟶', style: TextStyle(fontFamily: F.hand, fontSize: 26, color: C.orange))});
   @override
   State<_Cta> createState() => _CtaState();
 }
@@ -143,6 +164,10 @@ class _CtaState extends State<_Cta> {
             margin: const EdgeInsets.symmetric(horizontal: 26),
             decoration: BoxDecoration(color: _down ? const Color(0xFF2E2E2E) : C.black, borderRadius: BorderRadius.circular(6)),
             child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              if (widget.leading != null) ...[
+                widget.leading!,
+                const SizedBox(width: 12),
+              ],
               Flexible(
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 250),
@@ -164,9 +189,253 @@ class _CtaState extends State<_Cta> {
 
 // ---------------------------------------------------------------------------
 
+const googleLogoSvg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+  <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+  <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+  <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+</svg>''';
+
+class GoogleAccountItem {
+  final String name;
+  final String email;
+  final Color color;
+  const GoogleAccountItem(this.name, this.email, this.color);
+}
+
+Future<String?> openGoogleAccountChooser(BuildContext context, {String? currentEmail}) async {
+  final accounts = <GoogleAccountItem>[
+    const GoogleAccountItem('Rajkumar Padmanabhan', 'rajkumarpadmanabhan@gmail.com', Color(0xFF4285F4)),
+    const GoogleAccountItem('Rajkumar (Personal)', 'rajkumar.reading@gmail.com', Color(0xFFFBBC05)),
+    const GoogleAccountItem('Reader Sanctuary', 'reader.sanctuary@gmail.com', Color(0xFF34A853)),
+  ];
+
+  if (currentEmail != null && currentEmail.isNotEmpty) {
+    if (!accounts.any((a) => a.email.toLowerCase() == currentEmail.toLowerCase())) {
+      accounts.insert(
+        0,
+        GoogleAccountItem(
+          AppStore.nameFromEmail(currentEmail),
+          currentEmail,
+          const Color(0xFFEA4335),
+        ),
+      );
+    }
+  }
+
+  final manualController = TextEditingController(text: currentEmail ?? '');
+  var manual = false;
+  var err = '';
+
+  final result = await openDialog<String>((ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) {
+          void submitManual() {
+            final em = manualController.text.trim();
+            if (em.isEmpty) {
+              setDlgState(() => err = 'Please enter your Google email');
+              Buzz.medium();
+              return;
+            }
+            final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+            if (!emailRegex.hasMatch(em)) {
+              setDlgState(() => err = 'Enter a valid email (e.g. name@gmail.com)');
+              Buzz.medium();
+              return;
+            }
+            Buzz.tick();
+            Sfx.play('pop');
+            Navigator.of(ctx).pop(em);
+          }
+
+          void appendGmail() {
+            final cur = manualController.text.trim();
+            if (!cur.contains('@') && cur.isNotEmpty) {
+              manualController.text = '$cur@gmail.com';
+              manualController.selection = TextSelection.fromPosition(TextPosition(offset: manualController.text.length));
+              setDlgState(() => err = '');
+            }
+          }
+
+          if (manual) {
+            return AppDialog(
+              title: 'Enter Google email',
+              children: [
+                const Sub('Type your Google email address to personalize your reading shelves.'),
+                const SizedBox(height: 6),
+                AppInput(
+                  manualController,
+                  'you@gmail.com',
+                  type: TextInputType.emailAddress,
+                  caps: TextCapitalization.none,
+                  autofocus: true,
+                  maxLength: 80,
+                  onChanged: (_) => setDlgState(() => err = ''),
+                  onSubmitted: (_) => submitManual(),
+                ),
+                if (!manualController.text.contains('@') && manualController.text.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4, bottom: 2),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: GestureDetector(
+                        onTap: appendGmail,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEDE7DF),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Text('+ @gmail.com',
+                              style: TextStyle(fontFamily: F.sans, fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF6A5A4A))),
+                        ),
+                      ),
+                    ),
+                  ),
+                ErrText(err),
+              ],
+              actions: [
+                Btn('Back', onTap: () {
+                  setDlgState(() => manual = false);
+                  return false;
+                }),
+                Btn('Continue', kind: Kind.pri, onTap: () {
+                  submitManual();
+                  return false;
+                }),
+              ],
+            );
+          }
+
+          return AppDialog(
+            children: [
+              Row(
+                children: [
+                  SvgPicture.string(googleLogoSvg, width: 28, height: 28),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Choose an account', style: nu(18, FontWeight.w800, C.ink, 1.2)),
+                        const SizedBox(height: 2),
+                        Text('to continue to Shelfwise', style: nu(13, FontWeight.w600, C.muted)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              const Divider(height: 1, thickness: 1, color: Color(0x1F000000)),
+              const SizedBox(height: 6),
+              for (final acc in accounts)
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () {
+                      Buzz.tick();
+                      Sfx.play('pop');
+                      Navigator.of(ctx).pop(acc.email);
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 38,
+                            height: 38,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: acc.color,
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              acc.name.isNotEmpty ? acc.name[0].toUpperCase() : 'G',
+                              style: const TextStyle(fontWeight: FontWeight.w800, color: Colors.white, fontSize: 16),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(acc.name, style: nu(14.5, FontWeight.w700, C.ink)),
+                                Text(acc.email, style: nu(12.5, FontWeight.w500, C.muted)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 4),
+              const Divider(height: 1, thickness: 1, color: Color(0x1F000000)),
+              const SizedBox(height: 4),
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    Buzz.tick();
+                    setDlgState(() => manual = true);
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 38,
+                          height: 38,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Color(0x18000000),
+                          ),
+                          alignment: Alignment.center,
+                          child: Icon(Icons.person_add_alt_1_outlined, size: 20, color: C.ink),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Use another account', style: nu(14.5, FontWeight.w700, C.ink)),
+                              Text('Type email manually', style: nu(12.5, FontWeight.w500, C.muted)),
+                            ],
+                          ),
+                        ),
+                        Icon(Icons.chevron_right_rounded, size: 20, color: C.muted),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            actions: const [
+              Btn('Cancel'),
+            ],
+          );
+        },
+      ));
+
+  manualController.dispose();
+  return result;
+}
+
 class _Welcome extends StatefulWidget {
-  final VoidCallback onGo;
-  const _Welcome({super.key, required this.onGo});
+  final TextEditingController email;
+  final bool replay;
+  final bool sample;
+  final ValueChanged<bool> onSample;
+  final ValueChanged<String> onSelectEmail;
+  const _Welcome({
+    super.key,
+    required this.email,
+    required this.replay,
+    required this.sample,
+    required this.onSample,
+    required this.onSelectEmail,
+  });
   @override
   State<_Welcome> createState() => _WelcomeState();
 }
@@ -188,6 +457,14 @@ class _WelcomeState extends State<_Welcome> with TickerProviderStateMixin {
     _float.dispose();
     _line.dispose();
     super.dispose();
+  }
+
+  Future<void> _openGoogleChooser() async {
+    Buzz.tick();
+    final chosen = await openGoogleAccountChooser(context, currentEmail: widget.email.text);
+    if (chosen != null && chosen.isNotEmpty) {
+      widget.onSelectEmail(chosen);
+    }
   }
 
   @override
@@ -266,17 +543,60 @@ class _WelcomeState extends State<_Welcome> with TickerProviderStateMixin {
       ),
       FadeIn(
         delay: 450,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(40, 20, 40, 0),
+        child: const Padding(
+          padding: EdgeInsets.fromLTRB(40, 20, 40, 0),
           child: Text(
             'Keep every book you love on cozy shelves, and every reading plan on your to-do list.',
             textAlign: TextAlign.center,
-            style: TextStyle(fontFamily: F.sans, fontSize: 15, height: 1.45, color: const Color(0xFF555555)),
+            style: TextStyle(fontFamily: F.sans, fontSize: 15, height: 1.45, color: Color(0xFF555555)),
           ),
         ),
       ),
-      const SizedBox(height: 22),
-      FadeIn(delay: 600, child: _Cta('Let’s go', onTap: widget.onGo)),
+      if (!widget.replay)
+        FadeIn(
+          delay: 520,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(26, 16, 26, 4),
+            child: GestureDetector(
+              onTap: () => widget.onSample(!widget.sample),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: .7),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: C.black.withValues(alpha: .08)),
+                ),
+                child: Row(
+                  children: [
+                    const Text('📚', style: TextStyle(fontSize: 22)),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Start with sample library',
+                              style: TextStyle(fontFamily: F.sans, fontSize: 13.5, fontWeight: FontWeight.w600, color: C.black)),
+                          Text('55 classic books ready to explore',
+                              style: TextStyle(fontFamily: F.sans, fontSize: 12, color: Color(0xFF6B6B6B))),
+                        ],
+                      ),
+                    ),
+                    AppSwitch(value: widget.sample, onChanged: widget.onSample),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      const SizedBox(height: 18),
+      FadeIn(
+        delay: 600,
+        child: _Cta(
+          widget.replay ? 'Change Google Account' : 'Continue with Google',
+          leading: SvgPicture.string(googleLogoSvg, width: 22, height: 22),
+          onTap: _openGoogleChooser,
+        ),
+      ),
     ]);
   }
 }
@@ -308,43 +628,50 @@ class _Underline extends CustomPainter {
 
 // ---------------------------------------------------------------------------
 
-class _NameStep extends StatefulWidget {
-  final TextEditingController name;
+class _GoogleStep extends StatefulWidget {
+  final TextEditingController email;
   final bool replay, sample;
   final ValueChanged<bool> onSample;
   final VoidCallback onGo;
-  const _NameStep({super.key, required this.name, required this.replay, required this.sample, required this.onSample, required this.onGo});
+  const _GoogleStep({super.key, required this.email, required this.replay, required this.sample, required this.onSample, required this.onGo});
   @override
-  State<_NameStep> createState() => _NameStepState();
+  State<_GoogleStep> createState() => _GoogleStepState();
 }
 
-class _NameStepState extends State<_NameStep> with TickerProviderStateMixin {
+class _GoogleStepState extends State<_GoogleStep> with TickerProviderStateMixin {
   late final AnimationController _bob = AnimationController(vsync: this, duration: const Duration(milliseconds: 2600))..repeat();
-  late final AnimationController _shake = AnimationController(vsync: this, duration: const Duration(milliseconds: 420));
-  String _err = '';
 
   @override
   void dispose() {
     _bob.dispose();
-    _shake.dispose();
     super.dispose();
   }
 
   void _go() {
-    if (widget.name.text.trim().isEmpty) {
-      setState(() => _err = 'Tell us your name first');
-      _shake.forward(from: 0);
-      Buzz.medium();
-      return;
+    final em = widget.email.text.trim();
+    if (em.isEmpty) {
+      _openGoogleDialog();
+    } else {
+      widget.onGo();
     }
-    FocusScope.of(context).unfocus();
-    widget.onGo();
+  }
+
+  Future<void> _openGoogleDialog() async {
+    final chosen = await openGoogleAccountChooser(context, currentEmail: widget.email.text);
+    if (chosen != null && chosen.isNotEmpty) {
+      widget.email.text = chosen;
+      setState(() {});
+      widget.onGo();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final still = MediaQuery.of(context).disableAnimations;
-    final first = widget.name.text.trim().split(RegExp(r'\s+')).first;
+    final rawEmail = widget.email.text.trim();
+    final name = rawEmail.isNotEmpty ? AppStore.nameFromEmail(rawEmail) : '';
+    final first = name.isNotEmpty ? name.split(RegExp(r'\s+')).first : '';
+
     return _Page(children: [
       FadeIn(
         child: SizedBox(
@@ -374,8 +701,11 @@ class _NameStepState extends State<_NameStep> with TickerProviderStateMixin {
                     ),
                     child: AnimatedSwitcher(
                       duration: const Duration(milliseconds: 250),
-                      child: Text(first.isEmpty ? 'Hoo are you?' : 'Hi, $first!',
-                          key: ValueKey(first.isEmpty), style: const TextStyle(fontFamily: F.hand, fontWeight: FontWeight.w700, fontSize: 22, color: C.black)),
+                      child: Text(
+                        first.isEmpty ? 'Your shelf awaits!' : 'Hi, $first!',
+                        key: ValueKey(first.isEmpty ? 'empty' : first),
+                        style: const TextStyle(fontFamily: F.hand, fontWeight: FontWeight.w700, fontSize: 22, color: C.black),
+                      ),
                     ),
                   ),
                 ),
@@ -388,64 +718,62 @@ class _NameStepState extends State<_NameStep> with TickerProviderStateMixin {
         padding: const EdgeInsets.fromLTRB(26, 18, 26, 0),
         child: FadeIn(
           delay: 120,
-          child: Text(widget.replay ? 'Still you?' : 'What should we\ncall you?',
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontFamily: F.serif, fontWeight: FontWeight.w800, fontSize: 32, height: 1.1, letterSpacing: -.3, color: C.black)),
+          child: Text(
+            widget.replay ? 'Your Google Account' : 'Continue with\nGoogle',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontFamily: F.serif, fontWeight: FontWeight.w800, fontSize: 32, height: 1.1, letterSpacing: -.3, color: C.black),
+          ),
         ),
       ),
       FadeIn(
         delay: 220,
         child: const Padding(
-          padding: EdgeInsets.fromLTRB(40, 14, 40, 0),
-          child: Text('Your name stays on this phone. We’ll only use it to greet you.',
-              textAlign: TextAlign.center, style: TextStyle(fontFamily: F.sans, fontSize: 15, height: 1.45, color: Color(0xFF5D5D5D))),
+          padding: EdgeInsets.fromLTRB(36, 14, 36, 0),
+          child: Text(
+            'Continue with your Google account to personalize your cozy bookshelves and reading to-dos.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontFamily: F.sans, fontSize: 15, height: 1.45, color: Color(0xFF5D5D5D)),
+          ),
         ),
       ),
-      const SizedBox(height: 22),
-      FadeIn(
-        delay: 320,
-        child: AnimatedBuilder(
-          animation: _shake,
-          builder: (_, c) => Transform.translate(offset: Offset(sin(_shake.value * pi * 6) * 10 * (1 - _shake.value), 0), child: c),
+      const SizedBox(height: 24),
+      if (rawEmail.isNotEmpty)
+        FadeIn(
+          delay: 280,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 26),
-            child: TextField(
-              controller: widget.name,
-              autofocus: !widget.replay,
-              maxLength: 40,
-              textCapitalization: TextCapitalization.words,
-              textInputAction: TextInputAction.done,
-              onChanged: (_) => setState(() => _err = ''),
-              onSubmitted: (_) => _go(),
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontFamily: F.hand, fontWeight: FontWeight.w700, fontSize: 30, color: C.black),
-              decoration: InputDecoration(
-                counterText: '',
-                hintText: 'Your name',
-                hintStyle: const TextStyle(fontFamily: F.hand, fontWeight: FontWeight.w500, fontSize: 30, color: Color(0xFFB9AFA3)),
-                filled: true,
-                fillColor: Colors.white,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: C.black, width: 1.6)),
-                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: C.orange, width: 2.4)),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: C.black.withValues(alpha: .14), width: 1.4),
+                boxShadow: const [
+                  BoxShadow(color: Color.fromRGBO(0, 0, 0, .04), offset: Offset(0, 2), blurRadius: 8),
+                ],
               ),
+              child: Row(children: [
+                SvgPicture.string(googleLogoSvg, width: 24, height: 24),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(name, style: const TextStyle(fontFamily: F.sans, fontWeight: FontWeight.w700, fontSize: 15, color: C.black)),
+                    Text(rawEmail, style: const TextStyle(fontFamily: F.sans, fontSize: 13, color: Color(0xFF6B6B6B))),
+                  ]),
+                ),
+                TextButton(
+                  onPressed: _openGoogleDialog,
+                  style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                  child: const Text('Change', style: TextStyle(fontFamily: F.sans, fontWeight: FontWeight.w600, fontSize: 13, color: C.orange)),
+                ),
+              ]),
             ),
           ),
         ),
-      ),
-      SizedBox(
-        height: 26,
-        child: Center(
-          child: AnimatedOpacity(
-            duration: const Duration(milliseconds: 200),
-            opacity: _err.isEmpty ? 0 : 1,
-            child: Text(_err, style: TextStyle(fontFamily: F.sans, fontSize: 13, fontWeight: FontWeight.w500, color: C.error)),
-          ),
-        ),
-      ),
+      if (rawEmail.isNotEmpty) const SizedBox(height: 8),
       if (!widget.replay)
         FadeIn(
-          delay: 420,
+          delay: 360,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(26, 2, 26, 8),
             child: GestureDetector(
@@ -476,8 +804,15 @@ class _NameStepState extends State<_NameStep> with TickerProviderStateMixin {
             ),
           ),
         ),
-      const SizedBox(height: 14),
-      FadeIn(delay: 500, child: _Cta('Continue', onTap: _go)),
+      const SizedBox(height: 18),
+      FadeIn(
+        delay: 440,
+        child: _Cta(
+          rawEmail.isNotEmpty ? 'Continue as $first' : 'Continue with Google',
+          leading: SvgPicture.string(googleLogoSvg, width: 22, height: 22),
+          onTap: _go,
+        ),
+      ),
     ]);
   }
 }

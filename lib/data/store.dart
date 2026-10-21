@@ -8,7 +8,9 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'models.dart';
+import 'posts_models.dart';
 import 'sample_data.dart';
+import '../services/cd_player.dart';
 
 const shelfMax = 10;
 
@@ -63,13 +65,24 @@ class AppStore extends ChangeNotifier {
   late Directory _dir;
   late Directory images;
   late Directory bookFiles;
+  late Directory audioFiles;
 
   bool onboarded = false;
   bool toured = false;
+  bool isSample = false;
+  List<String> pairedFriends = [];
+  String _pairingCode = '';
+  String get pairingCode {
+    if (_pairingCode.isEmpty) {
+      _pairingCode = '${1000 + Random().nextInt(9000)}';
+    }
+    return _pairingCode;
+  }
   Profile profile = Profile();
   List<Collection> cols = [];
   List<String> headings = [];
   List<Todo> todos = [];
+  List<StickyNote> todoNotes = [];
   Settings settings = Settings();
   Set<String> claimed = {};
   int? lastBackup;
@@ -77,6 +90,11 @@ class AppStore extends ChangeNotifier {
   int goal = 0; // books to finish this year (0 = no goal)
   int goalYear = 0;
   int lastUpdateCheck = 0;
+  List<Post> posts = [];
+  Set<String> likedPosts = {};
+  Set<String> savedPosts = {};
+  Map<String, int> sharedPostCounts = {};
+  String postsView = 'list';
 
   Timer? _saveTimer;
 
@@ -88,6 +106,8 @@ class AppStore extends ChangeNotifier {
     if (!images.existsSync()) images.createSync(recursive: true);
     bookFiles = Directory('${_dir.path}/books');
     if (!bookFiles.existsSync()) bookFiles.createSync(recursive: true);
+    audioFiles = Directory('${_dir.path}/audio');
+    if (!audioFiles.existsSync()) audioFiles.createSync(recursive: true);
     try {
       if (_file.existsSync()) {
         fromJson(jsonDecode(await _file.readAsString()) as Map<String, dynamic>);
@@ -102,10 +122,15 @@ class AppStore extends ChangeNotifier {
         'v': 1,
         'onboarded': onboarded,
         'toured': toured,
+        'isSample': isSample,
+        'pairedFriends': pairedFriends,
+        'pairingCode': pairingCode,
         'profile': profile.toJson(),
         'cols': cols.map((c) => c.toJson()).toList(),
         'headings': headings,
         'todos': todos.map((t) => t.toJson()).toList(),
+        if (todoNotes.isNotEmpty)
+          'todoNotes': todoNotes.map((n) => n.toJson()).toList(),
         'settings': settings.toJson(),
         'claimed': claimed.toList(),
         if (lastBackup != null) 'lastBackup': lastBackup,
@@ -113,15 +138,24 @@ class AppStore extends ChangeNotifier {
         if (goal > 0) 'goal': goal,
         if (goal > 0) 'goalYear': goalYear,
         if (lastUpdateCheck > 0) 'lastUpdateCheck': lastUpdateCheck,
+        'posts': posts.map((p) => p.toJson()).toList(),
+        if (likedPosts.isNotEmpty) 'likedPosts': likedPosts.toList(),
+        if (savedPosts.isNotEmpty) 'savedPosts': savedPosts.toList(),
+        if (sharedPostCounts.isNotEmpty) 'sharedPostCounts': sharedPostCounts,
+        'postsView': postsView,
       };
 
   void fromJson(Map<String, dynamic> j) {
     onboarded = j['onboarded'] == true;
     toured = j['toured'] == true;
+    isSample = j['isSample'] == true;
+    pairedFriends = ((j['pairedFriends'] ?? const []) as List).cast<String>().toList();
+    _pairingCode = (j['pairingCode'] ?? '') as String;
     profile = Profile.fromJson(((j['profile'] ?? const {}) as Map).cast<String, dynamic>());
     cols = ((j['cols'] ?? const []) as List).map((e) => Collection.fromJson((e as Map).cast<String, dynamic>())).toList();
     headings = ((j['headings'] ?? const []) as List).cast<String>().toList();
     todos = ((j['todos'] ?? const []) as List).map((e) => Todo.fromJson((e as Map).cast<String, dynamic>())).toList();
+    todoNotes = ((j['todoNotes'] ?? const []) as List).map((e) => StickyNote.fromJson((e as Map).cast<String, dynamic>())).toList();
     settings = Settings.fromJson(((j['settings'] ?? const {}) as Map).cast<String, dynamic>());
     claimed = ((j['claimed'] ?? const []) as List).cast<String>().toSet();
     lastBackup = (j['lastBackup'] as num?)?.toInt();
@@ -129,6 +163,15 @@ class AppStore extends ChangeNotifier {
     goal = (j['goal'] as num?)?.toInt() ?? 0;
     goalYear = (j['goalYear'] as num?)?.toInt() ?? 0;
     lastUpdateCheck = (j['lastUpdateCheck'] as num?)?.toInt() ?? 0;
+    final pList = (j['posts'] as List?)
+        ?.map((e) => Post.fromJson((e as Map).cast<String, dynamic>()))
+        .where((p) => p.mine)
+        .toList();
+    posts = pList ?? [];
+    likedPosts = ((j['likedPosts'] ?? const []) as List).cast<String>().toSet();
+    savedPosts = ((j['savedPosts'] ?? const []) as List).cast<String>().toSet();
+    sharedPostCounts = ((j['sharedPostCounts'] ?? const {}) as Map).map((k, v) => MapEntry('$k', (v as num).toInt()));
+    postsView = (j['postsView'] ?? 'list') as String;
   }
 
   /// Call after any mutation: refreshes listeners and writes to disk shortly after.
@@ -168,9 +211,12 @@ class AppStore extends ChangeNotifier {
         for (final c in cols)
           for (final i in c.items)
             if (i.cover != null) i.cover!,
+        for (final p in posts)
+          if (p.bookCover != null) p.bookCover!,
       };
 
   File bookFile(String name) => File('${bookFiles.path}/$name');
+  File audioFile(String name) => File('${audioFiles.path}/$name');
 
   /// True when the book's PDF is actually on this phone (backups don't carry PDFs).
   bool copyExists(Item b) => b.file != null && bookFile(b.file!).existsSync();
@@ -192,6 +238,96 @@ class AppStore extends ChangeNotifier {
           f.deleteSync();
         } catch (_) {}
       }
+    }
+    final keepAudio = {
+      for (final c in cols) ...[
+        if (c.mainCd?.audioFile != null) c.mainCd!.audioFile!,
+        if (c.subCd?.audioFile != null) c.subCd!.audioFile!,
+      ]
+    };
+    if (audioFiles.existsSync()) {
+      for (final f in audioFiles.listSync().whereType<File>()) {
+        final name = f.uri.pathSegments.last;
+        if (!keepAudio.contains(name)) {
+          try {
+            f.deleteSync();
+          } catch (_) {}
+        }
+      }
+    }
+  }
+
+  // ---------- posts ----------
+  bool isPostLiked(String id) => likedPosts.contains(id);
+  bool isPostSaved(String id) => savedPosts.contains(id);
+  int postLikes(Post p) => p.likeCount + (isPostLiked(p.id) ? 1 : 0);
+  int postShares(Post p) => p.shareCount + (sharedPostCounts[p.id] ?? 0);
+
+  bool toggleLikePost(String id) {
+    final liked = likedPosts.contains(id);
+    if (liked) {
+      likedPosts.remove(id);
+    } else {
+      likedPosts.add(id);
+    }
+    changed();
+    return !liked;
+  }
+
+  bool toggleSavePost(String id) {
+    final saved = savedPosts.contains(id);
+    if (saved) {
+      savedPosts.remove(id);
+    } else {
+      savedPosts.add(id);
+    }
+    changed();
+    return !saved;
+  }
+
+  void incrementSharePost(String id) {
+    sharedPostCounts[id] = (sharedPostCounts[id] ?? 0) + 1;
+    changed();
+  }
+
+  void deletePost(String id) {
+    posts.removeWhere((p) => p.id == id);
+    likedPosts.remove(id);
+    savedPosts.remove(id);
+    sharedPostCounts.remove(id);
+    changed();
+  }
+
+  Post addPost({
+    required String bookTitle,
+    required String bookAuthor,
+    String? bookCover,
+    required List<PostItem> items,
+  }) {
+    final myName = profile.name.trim().isNotEmpty ? profile.name.trim() : 'Alex Reader';
+    final myHandle = profile.handle.trim().isNotEmpty ? profile.handle.trim() : 'alexreads';
+    final newPost = Post(
+      id: 'm_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(9999)}',
+      mine: true,
+      authorName: myName,
+      authorHandle: myHandle,
+      bookTitle: bookTitle,
+      bookAuthor: bookAuthor,
+      bookCover: bookCover,
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+      likeCount: 0,
+      shareCount: 0,
+      items: items,
+    );
+    posts.insert(0, newPost);
+    changed();
+    return newPost;
+  }
+
+  void setPostsView(String view) {
+    if (postsView != view) {
+      postsView = view;
+      changed();
     }
   }
 
@@ -255,6 +391,244 @@ class AppStore extends ChangeNotifier {
     return true;
   }
 
+  void setLights(Collection c, String? kind, {required bool sub, bool all = false}) {
+    if (all) {
+      for (final col in cols) {
+        col.setLights(kind, sub: false);
+        col.setLights(kind, sub: true);
+      }
+    } else {
+      c.setLights(kind, sub: sub);
+    }
+    changed();
+  }
+
+  bool addSticker(Collection c, String kind, {required bool sub}) {
+    if (c.stickersFor(sub: sub).length >= 12) return false;
+    final rnd = Random();
+    final x = 18.0 + rnd.nextDouble() * 60.0;
+    final y = 65.0 + rnd.nextDouble() * 18.0;
+    final r = (rnd.nextDouble() * 30.0 - 15.0);
+    c.stickers.add(ShelfSticker(kind: kind, x: x, y: y, r: r, sub: sub));
+    changed();
+    return true;
+  }
+
+  void removeSticker(Collection c, String stickerId) {
+    c.stickers.removeWhere((s) => s.id == stickerId);
+    changed();
+  }
+
+  void moveSticker(Collection c, String stickerId, double x, double y) {
+    for (final s in c.stickers) {
+      if (s.id == stickerId) {
+        s.x = x.clamp(2.0, 96.0);
+        s.y = y.clamp(2.0, 90.0);
+        changed();
+        break;
+      }
+    }
+  }
+
+  bool addStickyNote(Collection c, {
+    required String text,
+    required String color,
+    required String ink,
+    required bool sub,
+    String size = 'm',
+  }) {
+    if (c.notesFor(sub: sub).length >= 10) return false;
+    final rnd = Random();
+    final x = 12.0 + rnd.nextDouble() * 66.0;
+    final y = 40.0 + rnd.nextDouble() * 22.0;
+    final r = (rnd.nextDouble() * 8.0 - 4.0);
+    c.stickyNotes.add(StickyNote(
+      text: text,
+      color: color,
+      ink: ink,
+      size: size,
+      x: x,
+      y: y,
+      r: r,
+      sub: sub,
+      shelfId: c.id,
+    ));
+    changed();
+    return true;
+  }
+
+  void updateStickyNote(Collection c, String id, {String? text, String? color, String? ink, String? size}) {
+    for (final n in c.stickyNotes) {
+      if (n.id == id) {
+        if (text != null) n.text = text;
+        if (color != null) n.color = color;
+        if (ink != null) n.ink = ink;
+        if (size != null) n.size = size;
+        changed();
+        break;
+      }
+    }
+  }
+
+  void removeStickyNote(Collection c, String noteId) {
+    c.stickyNotes.removeWhere((n) => n.id == noteId);
+    changed();
+  }
+
+  void moveStickyNote(Collection c, String noteId, double x, double y) {
+    for (final n in c.stickyNotes) {
+      if (n.id == noteId) {
+        n.x = x.clamp(2.0, 96.0);
+        n.y = y.clamp(2.0, 90.0);
+        changed();
+        break;
+      }
+    }
+  }
+
+  bool addCd(Collection c, {bool sub = false}) {
+    if (c.cdFor(sub: sub) != null) return false;
+    c.setCd(ShelfCd(sub: sub, x: 74.0, y: 12.0), sub: sub);
+    changed();
+    return true;
+  }
+
+  void moveCd(Collection c, double x, double y, {bool sub = false}) {
+    final cd = c.cdFor(sub: sub);
+    if (cd != null) {
+      cd.x = x.clamp(2.0, 96.0);
+      cd.y = y.clamp(2.0, 90.0);
+      changed();
+    }
+  }
+
+  void setCdSong(Collection c, {required String fileName, required String title, bool sub = false}) {
+    final cd = c.cdFor(sub: sub);
+    if (cd != null) {
+      if (cd.audioFile != null && cd.audioFile != fileName) {
+        deleteAudio(cd.audioFile);
+      }
+      cd.audioFile = fileName;
+      cd.title = title;
+      changed();
+    }
+  }
+
+  void removeCd(Collection c, {bool sub = false}) {
+    final cd = c.cdFor(sub: sub);
+    if (cd != null) {
+      ShelfCdPlayer.I.stopIfPlaying(cd.id);
+      if (cd.audioFile != null) {
+        deleteAudio(cd.audioFile);
+      }
+      c.setCd(null, sub: sub);
+      changed();
+    }
+  }
+
+  void deleteAudio(String? name) {
+    if (name == null || name.isEmpty) return;
+    try {
+      final f = audioFile(name);
+      if (f.existsSync()) {
+        f.deleteSync();
+      }
+    } catch (e) {
+      debugPrint('Shelfwise: could not delete audio file $name: $e');
+    }
+  }
+
+  void addTodoStickyNote({
+    required String text,
+    required String color,
+    required String ink,
+    String size = 'm',
+    double? x,
+    double? y,
+  }) {
+    final rnd = Random();
+    final r = (rnd.nextDouble() * 6.0 - 3.0);
+    todoNotes.add(StickyNote(
+      text: text,
+      color: color,
+      ink: ink,
+      size: size,
+      r: r,
+      isTodo: true,
+      x: x ?? (15.0 + rnd.nextDouble() * 30.0),
+      y: y ?? (25.0 + rnd.nextDouble() * 20.0),
+    ));
+    changed();
+  }
+
+  void moveTodoStickyNote(String id, double x, double y) {
+    for (final n in todoNotes) {
+      if (n.id == id) {
+        n.x = x.clamp(1.0, 99.0);
+        n.y = y.clamp(1.0, 99.0);
+        changed();
+        break;
+      }
+    }
+  }
+
+  void updateTodoStickyNote(String id, {String? text, String? color, String? ink, String? size}) {
+    for (final n in todoNotes) {
+      if (n.id == id) {
+        if (text != null) n.text = text;
+        if (color != null) n.color = color;
+        if (ink != null) n.ink = ink;
+        if (size != null) n.size = size;
+        changed();
+        break;
+      }
+    }
+  }
+
+  void removeTodoStickyNote(String id) {
+    todoNotes.removeWhere((n) => n.id == id);
+    changed();
+  }
+
+  /// Pin [noteId] to [todoId] with the note's top-left at [offX],[offY]
+  /// relative to the todo tile's top-left corner.
+  void pinTodoStickyNote(String noteId, String todoId, double offX, double offY) {
+    for (final n in todoNotes) {
+      if (n.id == noteId) {
+        n.pinnedTodoId = todoId;
+        n.pinOffsetX = offX;
+        n.pinOffsetY = offY;
+        changed();
+        break;
+      }
+    }
+  }
+
+  /// Remove the pin so the note floats freely again (keeps its current x/y).
+  void unpinTodoStickyNote(String noteId) {
+    for (final n in todoNotes) {
+      if (n.id == noteId) {
+        n.pinnedTodoId = null;
+        n.pinOffsetX = null;
+        n.pinOffsetY = null;
+        changed();
+        break;
+      }
+    }
+  }
+
+  /// Update pin offset (called when the user drags a pinned note).
+  void movePinnedTodoStickyNote(String noteId, double offX, double offY) {
+    for (final n in todoNotes) {
+      if (n.id == noteId) {
+        n.pinOffsetX = offX;
+        n.pinOffsetY = offY;
+        changed();
+        break;
+      }
+    }
+  }
+
   Collection? colOf(Item it) {
     for (final c in cols) {
       if (c.items.contains(it)) return c;
@@ -282,6 +656,10 @@ class AppStore extends ChangeNotifier {
   void setStatus(Item b, String s) {
     b.status = s;
     b.finishedAt = s == 'f' ? (b.finishedAt ?? DateTime.now().millisecondsSinceEpoch) : null;
+    if (s == 'f') {
+      // Only reading books have bookmarks, finished books do not keep reading bookmarks
+      b.marks.removeWhere((m) => m.note.isEmpty);
+    }
     changed();
   }
 
@@ -528,8 +906,10 @@ class AppStore extends ChangeNotifier {
 
   // ---------- setup ----------
 
-  void setupFresh({required String name, required bool sample}) {
-    profile = Profile(name: name, handle: handleFor(name), bio: 'Reading one page at a time.');
+  void setupFresh({String name = '', required bool sample, String email = ''}) {
+    isSample = sample;
+    final finalName = name.trim().isNotEmpty ? name.trim() : (email.trim().isNotEmpty ? nameFromEmail(email) : 'Reader');
+    profile = Profile(name: finalName, handle: handleFor(finalName), email: email.trim(), bio: 'Reading one page at a time.');
     headings = [];
     claimed = {};
     if (sample) {
@@ -540,15 +920,108 @@ class AppStore extends ChangeNotifier {
         Collection(name: 'Want to read', emoji: '🔖', items: [Item.decor('pot')]),
         Collection(name: 'Favourites', emoji: '⭐', items: [Item.decor('candle')]),
       ];
-      final now = DateTime.now();
-      todos = [
-        Todo(text: 'Add the book I’m reading right now to my shelf', tags: ['start'], due: DateTime(now.year, now.month, now.day, 21).millisecondsSinceEpoch),
-        Todo(text: 'Tap the lamp on my shelf and switch it on 💡', tags: ['fun']),
-      ];
+      // Actual library starts clean with no dummy to-dos
+      todos = [];
+      todoNotes = [];
     }
     onboarded = true;
     toured = false;
     changed();
+  }
+
+  void logout() {
+    onboarded = false;
+    toured = false;
+    changed();
+  }
+
+  Future<void> deleteUser() async {
+    profile = Profile();
+    cols = [
+      Collection(name: 'Reading now', emoji: '📖'),
+      Collection(name: 'Want to read', emoji: '🔖'),
+      Collection(name: 'Favourites', emoji: '⭐'),
+    ];
+    todos = [];
+    todoNotes = [];
+    headings = [];
+    claimed = {};
+    settings = Settings();
+    isSample = false;
+    pairedFriends = [];
+    _pairingCode = '';
+    readLog = {};
+    goal = 0;
+    goalYear = 0;
+    onboarded = false;
+    toured = false;
+
+    try {
+      if (images.existsSync()) {
+        for (final f in images.listSync()) {
+          try {
+            f.deleteSync(recursive: true);
+          } catch (_) {}
+        }
+      }
+      if (bookFiles.existsSync()) {
+        for (final f in bookFiles.listSync()) {
+          try {
+            f.deleteSync(recursive: true);
+          } catch (_) {}
+        }
+      }
+      if (audioFiles.existsSync()) {
+        for (final f in audioFiles.listSync()) {
+          try {
+            f.deleteSync(recursive: true);
+          } catch (_) {}
+        }
+      }
+      ShelfCdPlayer.I.stop();
+      if (_file.existsSync()) {
+        _file.deleteSync();
+      }
+    } catch (e) {
+      debugPrint('deleteUser cleanup error: $e');
+    }
+    changed();
+  }
+
+  Item receiveSharedBook(Item book, {required String fromUser, bool permanent = false}) {
+    Collection? sharedCol;
+    for (final c in cols) {
+      if (c.name.trim().toLowerCase() == 'shared books') {
+        sharedCol = c;
+        break;
+      }
+    }
+    if (sharedCol == null) {
+      sharedCol = Collection(name: 'Shared books', emoji: '🤝');
+      cols.insert(0, sharedCol);
+    }
+    final copy = book.copy();
+    copy.id = newId();
+    final cleanSender = fromUser.trim().isNotEmpty ? fromUser.trim() : 'Friend';
+    copy.fromUser = cleanSender;
+    sharedCol.items.insert(0, copy);
+
+    if (permanent && !pairedFriends.contains(cleanSender)) {
+      pairedFriends.add(cleanSender);
+    }
+    changed();
+    return copy;
+  }
+
+  static String nameFromEmail(String email) {
+    final trimmed = email.trim();
+    if (trimmed.isEmpty) return 'Reader';
+    final userPart = trimmed.split('@').first;
+    final cleaned = userPart.replaceAll(RegExp(r'[^a-zA-Z0-9]+'), ' ').trim();
+    if (cleaned.isEmpty) return 'Reader';
+    final words = cleaned.split(RegExp(r'\s+')).where((w) => w.isNotEmpty);
+    final titleCased = words.map((w) => '${w[0].toUpperCase()}${w.length > 1 ? w.substring(1).toLowerCase() : ''}').join(' ');
+    return titleCased.isEmpty ? 'Reader' : titleCased;
   }
 
   static String handleFor(String name) {

@@ -404,6 +404,7 @@ final _anims = <String, _Anim>{
 const decorAnim = {
   'pot': 'sway', 'cactus': 'sway', 'succ': 'sway', 'vase': 'sway', 'frame': 'swing', 'pens': 'wob', 'scope': 'swing',
   'teddy': 'bounce', 'globe': 'spin', 'clock': 'ring', 'hour': 'flip', 'duck': 'squeak', 'trophy': 'bounce', 'cup': 'bounce',
+  'cd': 'spin',
 };
 
 const decorHint = {
@@ -411,6 +412,7 @@ const decorHint = {
   'candle': 'Tap to light it or blow it out.',
   'cam': 'Tap to take a photo.',
   'owl': 'Tap it and see what happens.',
+  'cd': 'Tap to spin the disc. 🎵',
 };
 
 /// A big decoration that reacts when tapped; slide across it to smash it.
@@ -502,6 +504,7 @@ class DecorStageState extends State<DecorStage> with TickerProviderStateMixin {
     if (k == 'clock') _float('⏰ ring!', 50, 10);
     if (k == 'duck') _float('squeak!', 50, 10);
     if (k == 'teddy') _float('💕', 50, 10);
+    if (k == 'cd') _float('🎵 spin!', 50, 10);
     if (k == 'trophy') {
       for (final (i, p) in const [(28.0, 24.0), (72.0, 20.0), (40.0, 8.0), (62.0, 40.0)].indexed) {
         _float('✨', p.$1, p.$2, i * 140);

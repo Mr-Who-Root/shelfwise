@@ -44,6 +44,7 @@ class Item {
   int readMs; // time spent reading this book's copy
   List<Mark> marks;
   String isbn;
+  String? fromUser;
 
   Item({
     String? id,
@@ -67,6 +68,7 @@ class Item {
     this.readMs = 0,
     List<Mark>? marks,
     this.isbn = '',
+    this.fromUser,
   })  : id = id ?? newId(),
         marks = marks ?? [],
         tags = tags ?? [],
@@ -99,6 +101,7 @@ class Item {
           if (readMs > 0) 'readMs': readMs,
           if (marks.isNotEmpty) 'marks': marks.map((e) => e.toJson()).toList(),
           if (isbn.isNotEmpty) 'isbn': isbn,
+          if (fromUser != null && fromUser!.isNotEmpty) 'fromUser': fromUser,
         },
         if (sub) 'sh': 1,
         'at': addedAt,
@@ -127,9 +130,167 @@ class Item {
         readMs: (j['readMs'] as num?)?.toInt() ?? 0,
         marks: ((j['marks'] ?? const []) as List).map((e) => Mark.fromJson((e as Map).cast<String, dynamic>())).toList(),
         isbn: (j['isbn'] ?? '') as String,
+        fromUser: j['fromUser'] as String?,
       );
 
   Item copy() => Item.fromJson(toJson());
+}
+
+class ShelfSticker {
+  String id;
+  String kind; // star, heart, smile, moon, flower, bolt, leaf, book
+  double x; // 0..100 percentage along shelf width
+  double y; // 0..100 percentage
+  double r; // rotation in degrees
+  bool sub;
+
+  ShelfSticker({
+    String? id,
+    required this.kind,
+    required this.x,
+    required this.y,
+    this.r = 0,
+    this.sub = false,
+  }) : id = id ?? newId();
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'k': kind,
+        'x': x,
+        'y': y,
+        'r': r,
+        if (sub) 'sub': true,
+      };
+
+  factory ShelfSticker.fromJson(Map<String, dynamic> j) => ShelfSticker(
+        id: j['id'] as String?,
+        kind: (j['k'] ?? 'star') as String,
+        x: (j['x'] as num?)?.toDouble() ?? 50.0,
+        y: (j['y'] as num?)?.toDouble() ?? 50.0,
+        r: (j['r'] as num?)?.toDouble() ?? 0.0,
+        sub: j['sub'] == true,
+      );
+}
+
+class StickyNote {
+  String id;
+  String text;
+  String color; // e.g. '#ffe27a', '#f8b4c6', '#bfe3b0', '#a8d4f2', '#ffbe85', '#d3c2f1'
+  String ink; // e.g. '#1c2f6b', '#171717', '#c62828', '#2e7d32'
+  String size; // 's' (small), 'm' (medium), 'l' (large)
+  double x; // 0..100 percentage
+  double y; // 0..100 percentage
+  double r; // rotation in degrees
+  bool sub;
+  String? shelfId;
+  bool isTodo;
+  int createdAt;
+  // Pin-to-todo fields
+  String? pinnedTodoId; // id of the Todo this note is pinned to
+  double? pinOffsetX;   // pixel offset from the todo tile's left edge
+  double? pinOffsetY;   // pixel offset from the todo tile's top edge
+
+  StickyNote({
+    String? id,
+    this.text = '',
+    this.color = '#ffe27a',
+    this.ink = '#1c2f6b',
+    this.size = 'm',
+    this.x = 50.0,
+    this.y = 50.0,
+    this.r = 0.0,
+    this.sub = false,
+    this.shelfId,
+    this.isTodo = false,
+    int? createdAt,
+    this.pinnedTodoId,
+    this.pinOffsetX,
+    this.pinOffsetY,
+  })  : id = id ?? newId(),
+        createdAt = createdAt ?? DateTime.now().millisecondsSinceEpoch;
+
+  bool get isPinned => pinnedTodoId != null;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        't': text,
+        'c': color,
+        'ink': ink,
+        if (size != 'm') 'sz': size,
+        'x': x,
+        'y': y,
+        'r': r,
+        if (sub) 'sub': true,
+        if (shelfId != null) 'sId': shelfId,
+        if (isTodo) 'todo': true,
+        'at': createdAt,
+        if (pinnedTodoId != null) 'pinTodo': pinnedTodoId,
+        if (pinOffsetX != null) 'pinOX': pinOffsetX,
+        if (pinOffsetY != null) 'pinOY': pinOffsetY,
+      };
+
+  factory StickyNote.fromJson(Map<String, dynamic> j) => StickyNote(
+        id: j['id'] as String?,
+        text: (j['t'] ?? j['text'] ?? '') as String,
+        color: (j['c'] ?? j['color'] ?? '#ffe27a') as String,
+        ink: (j['ink'] ?? '#1c2f6b') as String,
+        size: (j['sz'] ?? j['size'] ?? 'm') as String,
+        x: (j['x'] as num?)?.toDouble() ?? 50.0,
+        y: (j['y'] as num?)?.toDouble() ?? 50.0,
+        r: (j['r'] as num?)?.toDouble() ?? 0.0,
+        sub: j['sub'] == true,
+        shelfId: j['sId'] as String?,
+        isTodo: j['todo'] == true,
+        createdAt: (j['at'] as num?)?.toInt(),
+        pinnedTodoId: j['pinTodo'] as String?,
+        pinOffsetX: (j['pinOX'] as num?)?.toDouble(),
+        pinOffsetY: (j['pinOY'] as num?)?.toDouble(),
+      );
+}
+
+class ShelfCd {
+  String id;
+  String? audioFile;
+  String? title;
+  double x;
+  double y;
+  double r;
+  bool sub;
+  int createdAt;
+
+  ShelfCd({
+    String? id,
+    this.audioFile,
+    this.title,
+    this.x = 75.0,
+    this.y = 12.0,
+    this.r = 0.0,
+    this.sub = false,
+    int? createdAt,
+  })  : id = id ?? newId(),
+        createdAt = createdAt ?? DateTime.now().millisecondsSinceEpoch;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        if (audioFile != null) 'file': audioFile,
+        if (title != null) 't': title,
+        'x': x,
+        'y': y,
+        'r': r,
+        if (sub) 'sub': true,
+        'at': createdAt,
+      };
+
+  factory ShelfCd.fromJson(Map<String, dynamic> j) => ShelfCd(
+        id: j['id'] as String?,
+        audioFile: (j['file'] ?? j['audioFile']) as String?,
+        title: (j['t'] ?? j['title']) as String?,
+        x: (j['x'] as num?)?.toDouble() ?? 75.0,
+        y: (j['y'] as num?)?.toDouble() ?? 12.0,
+        r: (j['r'] as num?)?.toDouble() ?? 0.0,
+        sub: j['sub'] == true,
+        createdAt: (j['at'] as num?)?.toInt(),
+      );
 }
 
 class Collection {
@@ -139,12 +300,56 @@ class Collection {
   List<Item> items;
   bool subOn;
   bool subOpen;
+  String? mainLights; // null, 'warm', 'multi'
+  String? subLights;
+  List<ShelfSticker> stickers;
+  List<StickyNote> stickyNotes;
+  ShelfCd? mainCd;
+  ShelfCd? subCd;
 
-  Collection({String? id, required this.name, this.emoji = '📚', List<Item>? items, this.subOn = false, this.subOpen = false})
-      : id = id ?? newId(),
-        items = items ?? [];
+  Collection({
+    String? id,
+    required this.name,
+    this.emoji = '📚',
+    List<Item>? items,
+    this.subOn = false,
+    this.subOpen = false,
+    this.mainLights,
+    this.subLights,
+    List<ShelfSticker>? stickers,
+    List<StickyNote>? stickyNotes,
+    this.mainCd,
+    this.subCd,
+  })  : id = id ?? newId(),
+        items = items ?? [],
+        stickers = stickers ?? [],
+        stickyNotes = stickyNotes ?? [];
 
   Iterable<Item> get books => items.where((i) => !i.isDecor);
+
+  String? lights({bool sub = false}) => sub ? subLights : mainLights;
+  void setLights(String? k, {bool sub = false}) {
+    if (sub) {
+      subLights = k;
+    } else {
+      mainLights = k;
+    }
+  }
+
+  List<ShelfSticker> stickersFor({bool sub = false}) =>
+      stickers.where((s) => s.sub == sub).toList();
+
+  List<StickyNote> notesFor({bool sub = false}) =>
+      stickyNotes.where((n) => n.sub == sub).toList();
+
+  ShelfCd? cdFor({bool sub = false}) => sub ? subCd : mainCd;
+  void setCd(ShelfCd? cd, {bool sub = false}) {
+    if (sub) {
+      subCd = cd;
+    } else {
+      mainCd = cd;
+    }
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -153,15 +358,35 @@ class Collection {
         'items': items.map((e) => e.toJson()).toList(),
         if (subOn) 'subOn': true,
         if (subOpen) 'subOpen': true,
+        if (mainLights != null) 'mainLights': mainLights,
+        if (subLights != null) 'subLights': subLights,
+        if (stickers.isNotEmpty)
+          'stickers': stickers.map((e) => e.toJson()).toList(),
+        if (stickyNotes.isNotEmpty)
+          'stickyNotes': stickyNotes.map((e) => e.toJson()).toList(),
+        if (mainCd != null) 'mainCd': mainCd!.toJson(),
+        if (subCd != null) 'subCd': subCd!.toJson(),
       };
 
   factory Collection.fromJson(Map<String, dynamic> j) => Collection(
         id: j['id'] as String?,
         name: (j['name'] ?? 'Shelf') as String,
         emoji: (j['emoji'] ?? '📚') as String,
-        items: ((j['items'] ?? const []) as List).map((e) => Item.fromJson((e as Map).cast<String, dynamic>())).toList(),
+        items: ((j['items'] ?? const []) as List)
+            .map((e) => Item.fromJson((e as Map).cast<String, dynamic>()))
+            .toList(),
         subOn: j['subOn'] == true,
         subOpen: j['subOpen'] == true,
+        mainLights: j['mainLights'] as String?,
+        subLights: j['subLights'] as String?,
+        stickers: ((j['stickers'] ?? const []) as List)
+            .map((e) => ShelfSticker.fromJson((e as Map).cast<String, dynamic>()))
+            .toList(),
+        stickyNotes: ((j['stickyNotes'] ?? const []) as List)
+            .map((e) => StickyNote.fromJson((e as Map).cast<String, dynamic>()))
+            .toList(),
+        mainCd: j['mainCd'] != null ? ShelfCd.fromJson((j['mainCd'] as Map).cast<String, dynamic>()) : null,
+        subCd: j['subCd'] != null ? ShelfCd.fromJson((j['subCd'] as Map).cast<String, dynamic>()) : null,
       );
 }
 
@@ -290,6 +515,9 @@ class Settings {
   bool backupFiles;
   double epubSize;
   String skipVersion;
+  String shelfStyle; // glass, wood, iron, plastic
+  String pet; // none, cat, dog, rabbit, bird
+  bool acceptShared;
 
   Settings({
     this.reminders = false,
@@ -306,6 +534,9 @@ class Settings {
     this.backupFiles = false,
     this.epubSize = 18,
     this.skipVersion = '',
+    this.shelfStyle = 'glass',
+    this.pet = 'none',
+    this.acceptShared = true,
   });
 
   Map<String, dynamic> toJson() => {
@@ -323,6 +554,9 @@ class Settings {
         'backupFiles': backupFiles,
         'epubSize': epubSize,
         if (skipVersion.isNotEmpty) 'skipVersion': skipVersion,
+        'shelfStyle': shelfStyle,
+        'pet': pet,
+        if (!acceptShared) 'acceptShared': false,
       };
   factory Settings.fromJson(Map<String, dynamic> j) => Settings(
         reminders: j['reminders'] == true,
@@ -339,5 +573,8 @@ class Settings {
         backupFiles: j['backupFiles'] == true,
         epubSize: (j['epubSize'] as num?)?.toDouble() ?? 18,
         skipVersion: (j['skipVersion'] ?? '') as String,
+        shelfStyle: (j['shelfStyle'] ?? 'glass') as String,
+        pet: (j['pet'] ?? 'none') as String,
+        acceptShared: j['acceptShared'] != false,
       );
 }

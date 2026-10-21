@@ -33,6 +33,16 @@ class Ic {
   static const clock = '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M5 3L2 6M19 3l3 3"/>';
   static const share = '<path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 6l-4-4-4 4M12 2v13"/>';
   static const download = '<path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4M7 10l5 5 5-5M12 15V3"/>';
+  static const explore =
+      '<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>';
+  static const heart =
+      '<path d="M12 21s-8-5.2-8-11a4.6 4.6 0 0 1 8-3 4.6 4.6 0 0 1 8 3c0 5.8-8 11-8 11z"/>';
+  static const bookmark = '<path d="M6 3h12v18l-6-4.5L6 21z"/>';
+  static const list = '<path d="M4 6h16M4 12h16M4 18h16"/>';
+  static const grid =
+      '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>';
+  static const search = '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>';
+  static const close = '<path d="M18 6L6 18M6 6l12 12"/>';
 }
 
 /// Renders one of the [Ic] stroke icons in [color].

@@ -43,7 +43,8 @@ class BookCover extends StatelessWidget {
       shine: shine,
       titleLines: titleLines,
       topBorder: topBorder,
-      ribbon: b.hasCopy,
+      status: b.status,
+      hasCopy: b.hasCopy,
     );
   }
 }
@@ -54,7 +55,8 @@ class CoverFace extends StatelessWidget {
   final double w, h, radius, titleSize, authorSize, shine, topBorder;
   final int titleLines;
   final double spine;
-  final bool ribbon;
+  final String status;
+  final bool hasCopy;
   const CoverFace(
       {super.key,
       required this.title,
@@ -69,7 +71,8 @@ class CoverFace extends StatelessWidget {
       this.titleLines = 4,
       this.topBorder = 5,
       this.spine = 7,
-      this.ribbon = false});
+      this.status = '',
+      this.hasCopy = false});
 
   @override
   Widget build(BuildContext context) {
@@ -126,12 +129,23 @@ class CoverFace extends StatelessWidget {
               ),
             ),
           ),
-          if (ribbon)
+          // Status Bookmark: only reading books get a bookmark, not finished books
+          if (status == 'r')
             Positioned(
               top: 0,
-              right: w * .14,
-              width: max(6, w * .1),
-              height: max(12, h * .16),
+              right: w * .12,
+              width: max(10, w * .15),
+              height: max(18, h * .24),
+              child: const CustomPaint(
+                painter: _StatusBookmark(finished: false),
+              ),
+            ),
+          if (hasCopy)
+            Positioned(
+              top: 0,
+              left: w * .10,
+              width: max(6, w * .09),
+              height: max(10, h * .14),
               child: CustomPaint(painter: _Ribbon()),
             ),
           if (shine > 0 && shine < 1)
@@ -152,6 +166,67 @@ class CoverFace extends StatelessWidget {
       ),
     );
   }
+}
+
+class _StatusBookmark extends CustomPainter {
+  final bool finished;
+  const _StatusBookmark({required this.finished});
+
+  @override
+  void paint(Canvas c, Size s) {
+    final w = s.width;
+    final h = s.height;
+    final p = Path()
+      ..moveTo(0, 0)
+      ..lineTo(w, 0)
+      ..lineTo(w, h)
+      ..lineTo(w / 2, h * .75)
+      ..lineTo(0, h)
+      ..close();
+
+    c.drawShadow(p, Colors.black.withValues(alpha: .5), 3, false);
+
+    final gradient = finished
+        ? const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFFFD54F), Color(0xFFFFA000), Color(0xFFE65100)],
+          )
+        : const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFFF7043), Color(0xFFF4511E), Color(0xFFBF360C)],
+          );
+
+    final paint = Paint()..shader = gradient.createShader(Rect.fromLTWH(0, 0, w, h));
+    c.drawPath(p, paint);
+
+    final stitchPaint = Paint()
+      ..color = (finished ? const Color(0xFFFFF9C4) : const Color(0xFFFFCCBC)).withValues(alpha: .75)
+      ..strokeWidth = max(0.8, w * 0.08)
+      ..style = PaintingStyle.stroke;
+    final leftX = w * 0.18;
+    final rightX = w * 0.82;
+    c.drawLine(Offset(leftX, 0), Offset(leftX, h * 0.65), stitchPaint);
+    c.drawLine(Offset(rightX, 0), Offset(rightX, h * 0.65), stitchPaint);
+
+    if (finished && w >= 10) {
+      final markPaint = Paint()
+        ..color = Colors.white
+        ..strokeWidth = max(1.2, w * 0.12)
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+      final check = Path()
+        ..moveTo(w * 0.28, h * 0.40)
+        ..lineTo(w * 0.46, h * 0.52)
+        ..lineTo(w * 0.74, h * 0.28);
+      c.drawPath(check, markPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_StatusBookmark old) => old.finished != finished;
 }
 
 class _Ribbon extends CustomPainter {

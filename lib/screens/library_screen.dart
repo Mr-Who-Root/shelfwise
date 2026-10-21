@@ -11,11 +11,13 @@ import '../icons.dart';
 import '../services/sfx.dart';
 import '../theme.dart';
 import '../widgets/book_cover.dart';
+import '../widgets/book_share_sheet.dart';
 import '../widgets/common.dart';
 import '../widgets/copy_panel.dart';
 import '../widgets/dialogs.dart';
 import '../widgets/fx.dart';
 import '../widgets/shelf.dart';
+import '../widgets/sticky_note.dart';
 import '../widgets/stars.dart';
 import '../widgets/update_card.dart';
 import 'add_book_screen.dart';
@@ -48,12 +50,65 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   bool get home => widget.home;
 
+  static final Set<String> _alertedTodoIds = {};
+
   @override
   void initState() {
     super.initState();
     if (!home) {
       Future.delayed(const Duration(milliseconds: 650), _nudge);
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _checkUpcomingTodoAlert());
     }
+  }
+
+  void _checkUpcomingTodoAlert() {
+    if (!mounted || !home) return;
+    final now = DateTime.now();
+    final todayEnd = AppStore.endOfToday();
+    final todayStart = DateTime(now.year, now.month, now.day);
+
+    final candidates = store.todos.where((t) {
+      if (t.done || _alertedTodoIds.contains(t.id)) return false;
+      if (t.due != null) {
+        final d = t.dueAt!;
+        return d.isAfter(todayStart) && d.isBefore(todayEnd.add(const Duration(hours: 1)));
+      } else {
+        final created = DateTime.fromMillisecondsSinceEpoch(t.createdAt);
+        return created.isAfter(todayStart);
+      }
+    }).toList();
+
+    if (candidates.isEmpty) return;
+    final target = candidates.first;
+    _alertedTodoIds.add(target.id);
+
+    openDialog((ctx) => AppDialog(
+          title: '⏰ To-do Reminder',
+          children: [
+            Text(
+              '${target.text} starts in 1 hr',
+              style: nu(16, FontWeight.w800, C.ink, 1.3),
+            ),
+            if (target.book.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text('📖 ${target.book}', style: nu(13, FontWeight.w600, C.muted)),
+              ),
+            const SizedBox(height: 6),
+            Text(
+              target.due != null ? 'Scheduled for today (${fmtDue(target.dueAt!)})' : 'Active reading task for today',
+              style: nu(12, FontWeight.w600, C.muted),
+            ),
+          ],
+          actions: [
+            Btn('Skip', kind: Kind.normal, onTap: () => true),
+            Btn('OK', kind: Kind.pri, onTap: () {
+              widget.onTodo();
+              return true;
+            }),
+          ],
+        ));
   }
 
   @override
@@ -106,6 +161,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             padding: EdgeInsets.fromLTRB(0, top + 26, 0, 170),
             children: [
               _header(all.length),
+              if (home && store.isSample) _sampleLibraryBanner(),
               if (home) _homeBar(),
               if (!home) ...[
                 _search(),
@@ -149,6 +205,72 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  Widget _sampleLibraryBanner() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(22, 12, 22, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF3E0),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFFFB74D).withValues(alpha: .55)),
+      ),
+      child: Row(
+        children: [
+          const Text('📚', style: TextStyle(fontSize: 20)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Sample Library Active', style: nu(13.5, FontWeight.w800, C.brown)),
+                Text('Tap Logout to enter your actual empty library',
+                    style: nu(11.5, FontWeight.w600, C.muted)),
+              ],
+            ),
+          ),
+          Pressable(
+            onTap: _confirmLogout,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: C.brown,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.logout_rounded, size: 14, color: Colors.white),
+                  const SizedBox(width: 4),
+                  Text('Logout', style: nu(12, FontWeight.w800, Colors.white)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmLogout() {
+    Buzz.tick();
+    openDialog((ctx) => AppDialog(
+          title: 'Log out of sample library?',
+          children: [
+            const Sub(
+              'You will return to the welcome screen where you can start without the sample library and begin building your actual personal library.',
+            ),
+          ],
+          actions: [
+            const Btn('Cancel'),
+            Btn('Logout', kind: Kind.pri, onTap: () {
+              store.logout();
+              toast('Logged out');
+              return true;
+            }),
+          ],
+        ));
+  }
+
   Widget _header(int total) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 22),
@@ -163,6 +285,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ),
         const SizedBox(width: 8),
         Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+          if (home) ...[
+            Builder(
+              builder: (ctx) => BadgeButton(
+                icon: Ic.share,
+                count: 0,
+                label: 'Share',
+                onTap: () => openBookShareSheet(ctx, initialTab: 0),
+              ),
+            ),
+            const SizedBox(width: 10),
+          ],
           const BellButton(),
           const SizedBox(width: 10),
           BadgeButton(icon: Ic.gift, count: store.unclaimed.length, label: 'Rewards', onTap: () => openRewards()),
@@ -183,11 +316,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Widget _homeBar() {
-    final due = store.todos.where((t) => !t.done).toList()
-      ..sort((a, b) {
-        if (a.starred != b.starred) return a.starred ? -1 : 1;
-        return (a.due ?? 1 << 62).compareTo(b.due ?? 1 << 62);
-      });
     return Padding(
       padding: const EdgeInsets.fromLTRB(22, 16, 22, 0),
       child: Column(children: [
@@ -220,19 +348,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
           const SizedBox(height: 12),
           _ContinueCard(b),
         ],
-        if (due.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          _UpNext(todos: due.take(3).toList(), onMore: widget.onTodo),
-        ],
       ]),
     );
   }
 
   Item? _lastRead() {
-    final r = store.allBooks.where((b) => b.readAt != null && store.copyExists(b)).toList()
+    // Only reading books appear in continue reading, finished books are excluded
+    final r = store.allBooks
+        .where((b) => b.readAt != null && store.copyExists(b) && !b.finished)
+        .toList()
       ..sort((a, b) => b.readAt!.compareTo(a.readAt!));
     return r.isEmpty ? null : r.first;
   }
+
 
   Widget _search() => Padding(
         padding: const EdgeInsets.fromLTRB(22, 14, 22, 0),
@@ -463,56 +591,395 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   void _addDecor(Collection c, bool sub) {
     final n = store.rowCount(c, sub);
-    if (n >= shelfMax) {
-      toast('This shelf is full (10 spots)');
-      return;
-    }
+    final isFull = n >= shelfMax;
     final free = shelfMax - n;
-    openDialog((ctx) => AppDialog(
-          title: 'Add a decoration',
-          maxWidth: 380,
-          children: [
-            Sub('${plural(free, 'free spot')} on this ${sub ? 'sub shelf' : 'shelf'}. Adding a book to a full shelf replaces the last decoration.'),
-            ConstrainedBox(
-              constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * .46),
-              child: GridView.count(
+    final hasAnyLights = store.cols.any((col) => col.mainLights != null || col.subLights != null);
+    final curLights = c.lights(sub: sub);
+    String noteSize = 'm';
+
+    openDialog((ctx) => StatefulBuilder(
+          builder: (ctx, set) {
+            return AppDialog(
+              title: 'Decorate this ${sub ? 'sub shelf' : 'shelf'}',
+              maxWidth: 400,
+              children: [
+                Sub(isFull
+                    ? 'The 10 object spots are full, but you can still add stickers and lights.'
+                  : '${plural(free, 'free spot')} for objects. Adding a book to a full shelf replaces the last object.'),
+              const SizedBox(height: 8),
+
+              // --- Hanging lights ---
+              Row(children: [
+                Text('Hanging lights', style: nu(13, FontWeight.w800, C.chipText)),
+                if (curLights != null) ...[
+                  const SizedBox(width: 8),
+                  Text('(${curLights == 'multi' ? 'Multicolor' : 'Warm white'})', style: nu(12, FontWeight.w700, C.brown)),
+                ],
+              ]),
+              const SizedBox(height: 8),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                Pressable(
+                  onTap: () {
+                    store.setLights(c, 'warm', sub: sub);
+                    Sfx.play('pop');
+                    toast('Warm white lights hung on ${c.name}${sub ? ' · sub shelf' : ''}');
+                    set(() {});
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: curLights == 'warm' ? C.brown.withValues(alpha: .18) : C.field,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: curLights == 'warm' ? C.brown : C.inputLine, width: curLights == 'warm' ? 2 : 1),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Text('💡', style: TextStyle(fontSize: 16)),
+                      const SizedBox(width: 6),
+                      Text('Warm white', style: nu(12.5, FontWeight.w800, curLights == 'warm' ? C.brown : C.ink)),
+                    ]),
+                  ),
+                ),
+                Pressable(
+                  onTap: () {
+                    store.setLights(c, 'multi', sub: sub);
+                    Sfx.play('pop');
+                    toast('Multicolor lights hung on ${c.name}${sub ? ' · sub shelf' : ''}');
+                    set(() {});
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: curLights == 'multi' ? C.brown.withValues(alpha: .18) : C.field,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: curLights == 'multi' ? C.brown : C.inputLine, width: curLights == 'multi' ? 2 : 1),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Text('🌈', style: TextStyle(fontSize: 16)),
+                      const SizedBox(width: 6),
+                      Text('Multicolor', style: nu(12.5, FontWeight.w800, curLights == 'multi' ? C.brown : C.ink)),
+                    ]),
+                  ),
+                ),
+                if (curLights != null)
+                  Pressable(
+                    onTap: () {
+                      store.setLights(c, null, sub: sub);
+                      Sfx.play('swoosh');
+                      toast('Lights removed from this shelf');
+                      set(() {});
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: C.field,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: C.inputLine),
+                      ),
+                      child: Text('Remove here', style: nu(12, FontWeight.w700, C.muted)),
+                    ),
+                  ),
+                if (hasAnyLights)
+                  Pressable(
+                    onTap: () {
+                      store.setLights(c, null, sub: sub, all: true);
+                      Sfx.play('swoosh');
+                      toast('Lights removed from all shelves');
+                      set(() {});
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: C.field,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: C.inputLine),
+                      ),
+                      child: Text('Remove all', style: nu(12, FontWeight.w700, C.dangerInk)),
+                    ),
+                  ),
+              ]),
+              const SizedBox(height: 16),
+
+              // --- Objects ---
+              Row(children: [
+                Text('Objects', style: nu(13, FontWeight.w800, C.chipText)),
+                const SizedBox(width: 8),
+                Text(isFull ? '(full)' : '($free spots left)', style: nu(12, FontWeight.w600, C.muted)),
+              ]),
+              const SizedBox(height: 8),
+              ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * .32),
+                child: GridView.count(
+                  crossAxisCount: 4,
+                  shrinkWrap: true,
+                  padding: EdgeInsets.zero,
+                  mainAxisSpacing: 8,
+                  crossAxisSpacing: 8,
+                  childAspectRatio: .78,
+                  children: [
+                    for (final g in gadgets.values)
+                      Semantics(
+                        button: true,
+                        label: g.name,
+                        child: Pressable(
+                          onTap: () {
+                            if (isFull) {
+                              toast('This shelf is full (10 spots)');
+                              return;
+                            }
+                            Navigator.pop(ctx);
+                            if (store.addDecor(c, g.key, sub: sub)) {
+                              Sfx.play('pop');
+                              toast('${g.name} added to ${c.name}${sub ? ' · sub shelf' : ''}');
+                            }
+                          },
+                          child: Opacity(
+                            opacity: isFull ? .45 : 1.0,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                  color: C.field, borderRadius: BorderRadius.circular(12), border: Border.all(color: C.inputLine)),
+                              padding: const EdgeInsets.fromLTRB(2, 6, 2, 5),
+                              child: Column(children: [
+                                Expanded(child: SvgPicture.string(g.svg, fit: BoxFit.contain)),
+                                const SizedBox(height: 4),
+                                Text(g.name, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis, style: nu(10, FontWeight.w700)),
+                              ]),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // --- Stickers ---
+              Row(children: [
+                Text('Stickers', style: nu(13, FontWeight.w800, C.chipText)),
+                const SizedBox(width: 8),
+                Text('${c.stickersFor(sub: sub).length}/12', style: nu(12, FontWeight.w600, C.muted)),
+              ]),
+              const SizedBox(height: 8),
+              GridView.count(
                 crossAxisCount: 4,
                 shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
                 padding: EdgeInsets.zero,
                 mainAxisSpacing: 8,
                 crossAxisSpacing: 8,
-                childAspectRatio: .78,
+                childAspectRatio: .88,
                 children: [
-                  for (final g in gadgets.values)
+                  for (final st in shelfStickers.values)
                     Semantics(
                       button: true,
-                      label: g.name,
+                      label: '${st.name} sticker',
                       child: Pressable(
                         onTap: () {
+                          if (c.stickersFor(sub: sub).length >= 12) {
+                            toast('That shelf already has 12 stickers');
+                            return;
+                          }
                           Navigator.pop(ctx);
-                          if (store.addDecor(c, g.key, sub: sub)) {
+                          if (store.addSticker(c, st.key, sub: sub)) {
                             Sfx.play('pop');
-                            toast('${g.name} added to ${c.name}${sub ? ' · sub shelf' : ''}');
+                            toast('${st.name} sticker added. Tap it on your shelf to tear or remove');
                           }
                         },
                         child: Container(
                           decoration: BoxDecoration(
                               color: C.field, borderRadius: BorderRadius.circular(12), border: Border.all(color: C.inputLine)),
-                          padding: const EdgeInsets.fromLTRB(2, 6, 2, 5),
-                          child: Column(children: [
-                            Expanded(child: SvgPicture.string(g.svg, fit: BoxFit.contain)),
+                          padding: const EdgeInsets.all(6),
+                          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                            SizedBox(width: 38, height: 38, child: SvgPicture.string(st.svg)),
                             const SizedBox(height: 4),
-                            Text(g.name, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis, style: nu(10, FontWeight.w700)),
+                            Text(st.name, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis, style: nu(10, FontWeight.w700)),
                           ]),
                         ),
                       ),
                     ),
                 ],
               ),
-            ),
-          ],
-          actions: const [Btn('Cancel')],
-        ));
+              const SizedBox(height: 16),
+
+              // --- Sticky Notes ---
+              Row(children: [
+                Text('Sticky notes', style: nu(13, FontWeight.w800, C.chipText)),
+                const SizedBox(width: 8),
+                Text('${c.notesFor(sub: sub).length}/10', style: nu(12, FontWeight.w600, C.muted)),
+              ]),
+              const SizedBox(height: 8),
+              Row(children: [
+                for (final (sz, label) in const [('s', 'S Small'), ('m', 'M Medium'), ('l', 'L Large')])
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: GestureDetector(
+                      onTap: () => set(() => noteSize = sz),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: noteSize == sz ? C.brown : C.chip,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: noteSize == sz ? C.brown : const Color(0x33000000),
+                            width: noteSize == sz ? 2 : 1,
+                          ),
+                        ),
+                        child: Text(
+                          label,
+                          style: nu(12, FontWeight.w800, noteSize == sz ? Colors.white : C.chipText),
+                        ),
+                      ),
+                    ),
+                  ),
+              ]),
+              const SizedBox(height: 10),
+              Wrap(spacing: 10, runSpacing: 8, children: [
+                for (final entry in stickyColorDefs.entries)
+                  Pressable(
+                    onTap: () {
+                      if (c.notesFor(sub: sub).length >= 10) {
+                        toast('That shelf already has 10 sticky notes');
+                        return;
+                      }
+                      Navigator.pop(ctx);
+                      if (store.addStickyNote(c, text: 'Reading note…', color: entry.key, ink: '#1c2f6b', sub: sub, size: noteSize)) {
+                        Sfx.play('pop');
+                        toast('Sticky note pinned to shelf! Tap it on the shelf to write or edit.');
+                      }
+                    },
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: entry.value,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0x33000000)),
+                        boxShadow: const [BoxShadow(color: Color(0x18000000), offset: Offset(1, 2), blurRadius: 3)],
+                      ),
+                      alignment: Alignment.center,
+                      child: const Text('📝', style: TextStyle(fontSize: 20)),
+                    ),
+                  ),
+              ]),
+              const SizedBox(height: 16),
+
+              // --- Music CD (Compact Disc) ---
+              Row(children: [
+                Text('Music CD 💿', style: nu(13, FontWeight.w800, C.chipText)),
+                const SizedBox(width: 8),
+                Text(c.cdFor(sub: sub) != null ? '1/1 added' : '0/1 (Max 1 per shelf)', style: nu(12, FontWeight.w600, C.muted)),
+              ]),
+              const SizedBox(height: 8),
+              if (c.cdFor(sub: sub) != null) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: C.field,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: C.inputLine),
+                  ),
+                  child: Row(
+                    children: [
+                      const Text('💿', style: TextStyle(fontSize: 22)),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              c.cdFor(sub: sub)!.title?.isNotEmpty == true
+                                  ? c.cdFor(sub: sub)!.title!
+                                  : 'CD on shelf (no song yet)',
+                              style: nu(13, FontWeight.w800),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Text(
+                              'Tap the CD directly on the shelf to upload MP3 or manage',
+                              style: nu(11, FontWeight.w600, C.muted),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Pressable(
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          store.removeCd(c, sub: sub);
+                          toast('CD removed & song deleted');
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: const Color(0x18FF0000),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else ...[
+                Pressable(
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    if (store.addCd(c, sub: sub)) {
+                      Sfx.play('pop');
+                      toast('CD placed on shelf! 💿 Tap it to upload your MP3 song.');
+                    }
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: C.field,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: C.inputLine),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: SweepGradient(
+                              colors: [
+                                Color(0xFFE8EEF5),
+                                Color(0xFFC7D7E8),
+                                Color(0xFFFFD5E5),
+                                Color(0xFFD6F5E3),
+                                Color(0xFFFFF2C2),
+                                Color(0xFFE8EEF5),
+                              ],
+                            ),
+                            boxShadow: [
+                              BoxShadow(color: Color(0x22000000), blurRadius: 4, offset: Offset(0, 2))
+                            ],
+                          ),
+                          alignment: Alignment.center,
+                          child: const Text('💿', style: TextStyle(fontSize: 20)),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Add Music CD to Shelf', style: nu(13.5, FontWeight.w800)),
+                              const SizedBox(height: 2),
+                              Text('Upload an MP3 song to play on Home (rotates while playing!)', style: nu(11.5, FontWeight.w600, C.muted)),
+                            ],
+                          ),
+                        ),
+                        Icon(Icons.add_circle, color: C.brown, size: 24),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ],
+            actions: const [Btn('Close')],
+          );
+        }));
   }
 
   void _bookMenu(Collection c, Item b) {
@@ -530,6 +997,28 @@ class _LibraryScreenState extends State<LibraryScreen> {
           builder: (ctx, _) => AppDialog(
             title: b.title,
             children: [
+              if (c.name.trim().toLowerCase() == 'shared books' || (b.fromUser != null && b.fromUser!.isNotEmpty))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF3E8DC),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFD4B996)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('🤝 ', style: TextStyle(fontSize: 15)),
+                        Text(
+                          'Book from ${b.fromUser?.trim().isNotEmpty == true ? b.fromUser : "User 2"}',
+                          style: nu(13, FontWeight.w800, C.brown),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               Row(children: [
                 _Shadowed(child: BookCover(b, w: 68, h: 96, titleSize: 9, authorSize: 7, titleLines: 5)),
                 const SizedBox(width: 14),
@@ -869,65 +1358,6 @@ class _ContinueCard extends StatelessWidget {
   }
 }
 
-/// Compact "Up next" strip on Home.
-class _UpNext extends StatelessWidget {
-  final List<Todo> todos;
-  final VoidCallback onMore;
-  const _UpNext({required this.todos, required this.onMore});
-
-  @override
-  Widget build(BuildContext context) {
-    return CardBox(
-      pad: const EdgeInsets.fromLTRB(14, 12, 8, 6),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(children: [
-          Text('📌 Up next', style: nu(15, FontWeight.w800)),
-          const Spacer(),
-          Pressable(
-            onTap: onMore,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: Text('See all ›', style: nu(13, FontWeight.w800, C.brown)),
-            ),
-          ),
-        ]),
-        for (final t in todos)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Row(children: [
-              Semantics(
-                button: true,
-                label: 'Mark done',
-                child: Pressable(
-                  onTap: () {
-                    store.toggleTodo(t);
-                    Sfx.play('check');
-                    toast('Nice! Task done ✓');
-                  },
-                  scale: .8,
-                  child: Container(
-                    width: 26,
-                    height: 26,
-                    decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: C.brown, width: 2)),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(t.text, maxLines: 1, overflow: TextOverflow.ellipsis, style: nu(14, FontWeight.w700)),
-                  if (t.dueAt != null)
-                    Text(fmtDue(t.dueAt!),
-                        style: nu(12, FontWeight.w700, store.isOverdue(t) ? C.error : C.muted)),
-                ]),
-              ),
-              if (t.starred) const Padding(padding: EdgeInsets.only(right: 6), child: Text('⭐', style: TextStyle(fontSize: 14))),
-            ]),
-          ),
-      ]),
-    );
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Shared dialogs (also used by the profile and full-screen shelf)
@@ -936,6 +1366,28 @@ class _UpNext extends StatelessWidget {
 /// Read-only look at a book (Home mode and profile).
 void openBookView(Collection c, Item b) {
   openDialog((_) => AppDialog(title: b.title, children: [
+        if (c.name.trim().toLowerCase() == 'shared books' || (b.fromUser != null && b.fromUser!.isNotEmpty))
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3E8DC),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFD4B996)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('🤝 ', style: TextStyle(fontSize: 15)),
+                  Text(
+                    'Book from ${b.fromUser?.trim().isNotEmpty == true ? b.fromUser : "User 2"}',
+                    style: nu(13, FontWeight.w800, C.brown),
+                  ),
+                ],
+              ),
+            ),
+          ),
         Row(children: [
           _Shadowed(child: BookCover(b, w: 68, h: 96, titleSize: 9, authorSize: 7, titleLines: 5)),
           const SizedBox(width: 14),

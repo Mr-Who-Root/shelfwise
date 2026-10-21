@@ -139,7 +139,79 @@ class Sfx {
     'bounce': (m) => m
       ..tone(200, 520, .12, 'sine', .2)
       ..tone(520, 230, .2, 'sine', .2, .12),
+    'meow': (m) => m
+      ..tone(520, 840, .17, 'sawtooth', .18)
+      ..tone(840, 430, .34, 'sawtooth', .15, .16),
+    'purr': (m) => m.noise(.55, .14, 'lowpass', 240, 180),
+    'cat_scare': (m) => m
+      ..noise(.4, .25, 'highpass', 2500, 1500)
+      ..tone(900, 500, .35, 'sawtooth', .14),
+    'bark': (m) => m
+      ..tone(320, 170, .14, 'sawtooth', .22)
+      ..noise(.07, .15, 'bandpass', 1400, 600)
+      ..tone(340, 180, .14, 'sawtooth', .2, .22)
+      ..noise(.07, .13, 'bandpass', 1400, 600, .22),
+    'dog_pant': (m) => m
+      ..noise(.25, .09, 'bandpass', 600, 400)
+      ..tone(240, 110, .5, 'sine', .14, .05),
+    'dog_scare': (m) => m
+      ..tone(1000, 520, .18, 'square', .12)
+      ..tone(1050, 560, .18, 'square', .12, .18),
+    'thump': (m) => m
+      ..tone(130, 50, .12, 'sine', .35)
+      ..tone(110, 45, .1, 'sine', .25, .14),
+    'rabbit_scare': (m) => m
+      ..tone(140, 50, .09, 'sine', .3)
+      ..tone(140, 50, .09, 'sine', .3, .1)
+      ..tone(1600, 2400, .12, 'sine', .12, .22),
+    'chirp': (m) {
+      m.tone(2300, 3200, .07, 'sine', .15);
+      m.tone(3200, 2600, .05, 'sine', .12, .07);
+      m.tone(2500, 3400, .07, 'sine', .14, .15);
+    },
+    'bird_scare': (m) {
+      for (var i = 0; i < 5; i++) {
+        m.noise(.05, .15, 'highpass', 3000, 5000, i * .04);
+      }
+      m.tone(2900, 3600, .08, 'sine', .16, .2);
+    },
+    'pet_run': (m) {
+      for (var i = 0; i < 7; i++) {
+        m.noise(.04, .18, 'lowpass', 700, 350, i * .08);
+      }
+    },
+    'pet_land': (m) => m.noise(.08, .25, 'lowpass', 800, 350),
   };
+
+  /// Play pet sound based on species and action
+  static void pet(String kind, String action) {
+    if (kind == 'none' || kind.isEmpty) return;
+    if (action == 'call' || action == 'tap' || action == 'hello') {
+      final key = switch (kind) {
+        'cat' => 'meow',
+        'dog' => 'bark',
+        'rabbit' => 'thump',
+        'bird' => 'chirp',
+        _ => 'tap',
+      };
+      play(key);
+    } else if (action == 'scare') {
+      final key = switch (kind) {
+        'cat' => 'cat_scare',
+        'dog' => 'dog_scare',
+        'rabbit' => 'rabbit_scare',
+        'bird' => 'bird_scare',
+        _ => 'pop',
+      };
+      play(key);
+      Future.delayed(const Duration(milliseconds: 280), () => play('pet_run'));
+    } else if (action == 'land') {
+      play('pet_land');
+    } else if (action == 'sleep') {
+      if (kind == 'cat') play('purr');
+      if (kind == 'dog') play('dog_pant');
+    }
+  }
 
   /// Decoration sounds keyed by gadget, as in the mockup.
   static const decor = {

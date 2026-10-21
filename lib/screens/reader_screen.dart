@@ -331,6 +331,8 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
       toast('Bookmark removed');
       Sfx.play('tap');
     } else if (m == null) {
+      // Keep strictly one bookmark per book (removing any previous bookmark, keeping notes)
+      b.marks.removeWhere((mark) => mark.note.isEmpty);
       b.marks.add(Mark(page: _page, pos: _ep?.offsetOfPage(_page) ?? -1));
       toast('Bookmarked page ${_page + 1}');
       Sfx.play('pop');
@@ -934,7 +936,14 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text(b.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: nu(16, FontWeight.w800, const Color(0xFFF3EEE6))),
-                    Text(b.author, maxLines: 1, overflow: TextOverflow.ellipsis, style: nu(12, FontWeight.w700, const Color(0xFFCDBFAE))),
+                    Text(
+                      b.fromUser != null && b.fromUser!.isNotEmpty
+                          ? '${b.author} · 🤝 Book from ${b.fromUser}'
+                          : b.author,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: nu(12, FontWeight.w700, const Color(0xFFCDBFAE)),
+                    ),
                   ]),
                 ),
                 const SizedBox(width: 8),

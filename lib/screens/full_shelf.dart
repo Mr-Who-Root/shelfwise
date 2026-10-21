@@ -114,7 +114,9 @@ class _FullShelf extends StatelessWidget {
                                             Pressable(
                                               onTap: () => it.isDecor ? openDecor(c, it, home: true) : openBookView(c, it),
                                               child: it.isDecor
-                                                  ? GadgetView(it.gadget!, w: 78 * .85, h: 112 * gadgetHeightFactor(it.gadget!), lit: it.lit)
+                                                  ? (it.gadget == 'cd'
+                                                      ? GadgetView(it.gadget!, w: 112 * .8, h: 112 * .8, lit: it.lit)
+                                                      : GadgetView(it.gadget!, w: 78 * .85, h: 112 * gadgetHeightFactor(it.gadget!), lit: it.lit))
                                                   : DecoratedBox(
                                                       decoration: BoxDecoration(
                                                         borderRadius: BorderRadius.circular(5),
