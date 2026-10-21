@@ -369,7 +369,14 @@ class AppStore extends ChangeNotifier {
     }
   }
 
-  void addTodoStickyNote({required String text, required String color, required String ink, String size = 'm'}) {
+  void addTodoStickyNote({
+    required String text,
+    required String color,
+    required String ink,
+    String size = 'm',
+    double? x,
+    double? y,
+  }) {
     final rnd = Random();
     final r = (rnd.nextDouble() * 6.0 - 3.0);
     todoNotes.add(StickyNote(
@@ -379,10 +386,21 @@ class AppStore extends ChangeNotifier {
       size: size,
       r: r,
       isTodo: true,
-      x: 10.0 + rnd.nextDouble() * 40.0,
-      y: 0.0,
+      x: x ?? (15.0 + rnd.nextDouble() * 30.0),
+      y: y ?? (25.0 + rnd.nextDouble() * 20.0),
     ));
     changed();
+  }
+
+  void moveTodoStickyNote(String id, double x, double y) {
+    for (final n in todoNotes) {
+      if (n.id == id) {
+        n.x = x.clamp(1.0, 99.0);
+        n.y = y.clamp(1.0, 99.0);
+        changed();
+        break;
+      }
+    }
   }
 
   void updateTodoStickyNote(String id, {String? text, String? color, String? ink, String? size}) {

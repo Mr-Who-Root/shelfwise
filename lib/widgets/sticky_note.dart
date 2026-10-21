@@ -48,6 +48,7 @@ class StickyNoteWidget extends StatefulWidget {
   final double width;
   final double minHeight;
   final bool enableDrag;
+  final bool canEdit;
   final VoidCallback? onTear;
   final void Function(double dx, double dy)? onMoved;
   final VoidCallback? onEdited;
@@ -58,6 +59,7 @@ class StickyNoteWidget extends StatefulWidget {
     this.width = 138,
     this.minHeight = 112,
     this.enableDrag = true,
+    this.canEdit = true,
     this.onTear,
     this.onMoved,
     this.onEdited,
@@ -147,6 +149,57 @@ class _StickyNoteWidgetState extends State<StickyNoteWidget>
         ));
   }
 
+  void _openViewOrTearDialog() {
+    Buzz.tick();
+    openDialog((ctx) {
+      final paperColor = parseStickyColor(widget.note.color);
+      final inkColor = parseStickyInk(widget.note.ink);
+      final fontScale = effectiveFontScale;
+      return AppDialog(
+        title: 'Sticky Note 📌',
+        maxWidth: 340,
+        actions: [
+          const Btn('Close'),
+          Btn('Tear off 🗑️', kind: Kind.danger, onTap: () {
+            _tearNote();
+            return true;
+          }),
+        ],
+        children: [
+          Container(
+            padding: EdgeInsets.all(14 * fontScale),
+            decoration: BoxDecoration(
+              color: paperColor,
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x22000000),
+                  offset: Offset(0, 3),
+                  blurRadius: 6,
+                ),
+              ],
+            ),
+            child: Text(
+              widget.note.text.trim().isEmpty ? '(Empty note)' : widget.note.text,
+              style: TextStyle(
+                fontFamily: 'Caveat',
+                fontSize: 19 * fontScale,
+                fontWeight: FontWeight.w700,
+                color: inkColor,
+                height: 1.25,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Sticky notes can be edited in the Library shelf. You can tear off or delete this note from Home anytime.',
+            style: nu(12, FontWeight.w600, C.muted),
+          ),
+        ],
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final curW = effectiveWidth;
@@ -222,7 +275,7 @@ class _StickyNoteWidgetState extends State<StickyNoteWidget>
     final fontScale = effectiveFontScale;
 
     return GestureDetector(
-      onTap: _openEditor,
+      onTap: widget.canEdit ? _openEditor : _openViewOrTearDialog,
       onDoubleTap: _tearNote,
       onPanStart: widget.enableDrag
           ? (_) {

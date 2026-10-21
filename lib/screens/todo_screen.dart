@@ -250,34 +250,54 @@ class _TodoScreenState extends State<TodoScreen> {
                         onTap: () => setState(() => TodoUi.f = (k == f && k.startsWith('t:')) ? 'all' : k)),
                 ]),
               ),
-              if (store.todoNotes.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(6, 0, 6, 16),
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    physics: const BouncingScrollPhysics(),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        for (final note in store.todoNotes)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 14),
-                            child: StickyNoteWidget(
-                              key: ValueKey(note.id),
-                              note: note,
-                              width: 144,
-                              minHeight: 114,
-                              onEdited: () => store.changed(),
-                              onTear: () => store.removeTodoStickyNote(note.id),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
               if (list.isEmpty) _empty() else _bento(list),
             ],
           ),
+          for (int i = 0; i < store.todoNotes.length; i++) ...[
+            Builder(builder: (ctx) {
+              final note = store.todoNotes[i];
+              final noteW = switch (note.size) {
+                's' => 110.0,
+                'l' => 176.0,
+                _ => 138.0,
+              };
+              final noteH = switch (note.size) {
+                's' => 90.0,
+                'l' => 144.0,
+                _ => 112.0,
+              };
+              final screenW = mq.size.width;
+              final screenH = mq.size.height;
+              final topPad = mq.padding.top;
+              final botPad = mq.padding.bottom;
+
+              final curLeft = (note.x / 100 * screenW).clamp(6.0, (screenW - noteW - 6.0).clamp(6.0, screenW));
+              final defaultTop = topPad + 180.0 + (i * 32.0);
+              final effectiveY = note.y <= 0.0 ? (defaultTop / screenH * 100) : note.y;
+              final curTop = (effectiveY / 100 * screenH).clamp(topPad + 50.0, (screenH - botPad - noteH - 60.0).clamp(topPad + 50.0, screenH));
+
+              return Positioned(
+                left: curLeft,
+                top: curTop,
+                child: StickyNoteWidget(
+                  key: ValueKey(note.id),
+                  note: note,
+                  width: noteW,
+                  minHeight: noteH,
+                  canEdit: true,
+                  onMoved: (dx, dy) {
+                    final newLeft = (curLeft + dx).clamp(6.0, (screenW - noteW - 6.0).clamp(6.0, screenW));
+                    final newTop = (curTop + dy).clamp(topPad + 50.0, (screenH - botPad - noteH - 60.0).clamp(topPad + 50.0, screenH));
+                    final nx = (newLeft / screenW) * 100.0;
+                    final ny = (newTop / screenH) * 100.0;
+                    store.moveTodoStickyNote(note.id, nx, ny);
+                  },
+                  onEdited: () => store.changed(),
+                  onTear: () => store.removeTodoStickyNote(note.id),
+                ),
+              );
+            }),
+          ],
           Positioned(
             right: 18,
             bottom: 96 + mq.padding.bottom,

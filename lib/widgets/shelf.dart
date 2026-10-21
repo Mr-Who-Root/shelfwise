@@ -394,6 +394,7 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
                       note: note,
                       width: 130,
                       minHeight: 104,
+                      canEdit: !widget.home,
                       onMoved: (dx, dy) {
                         final nx = ((note.x / 100 * totalWidth) + dx) / totalWidth * 100;
                         final ny = ((note.y / 100 * glassH) - dy) / glassH * 100;
