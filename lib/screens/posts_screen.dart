@@ -490,7 +490,7 @@ class _PostCardState extends State<_PostCard> with SingleTickerProviderStateMixi
     final text = '“${p.fullText}” — ${p.authorName} on ${p.bookTitle} by ${p.bookAuthor} · Readers';
 
     try {
-      final res = await SharePlus.instance.share(text);
+      final res = await Share.share(text);
       if (res.status == ShareResultStatus.success) {
         store.incrementSharePost(p.id);
         toast('Shared');
