@@ -77,9 +77,10 @@ class _ShellState extends State<Shell> {
               child: _page(),
             ),
           ),
-          Positioned.fill(
-            child: PetOverlay(tab: _tab),
-          ),
+          if (_tab == 0)
+            const Positioned.fill(
+              child: PetOverlay(tab: 0),
+            ),
           Positioned(left: 0, right: 0, top: 0, height: MediaQuery.paddingOf(context).top, child: ColoredBox(color: C.bg.withValues(alpha: .95))),
           Positioned(left: 0, right: 0, bottom: 0, child: _NavBar(tab: _tab, onTab: go)),
         ]),

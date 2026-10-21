@@ -6,10 +6,70 @@ import 'package:flutter/material.dart';
 import '../data/store.dart';
 import '../services/sfx.dart';
 
-/// Global registries for screen targets so the pet can jump accurately onto
-/// shelves (on Home page) and to-do cards (on To-do page).
+/// Represents a physical shelf on the Home screen that a pet can jump onto,
+/// walk across, sit on, and jump upwards from.
+class ShelfSurface {
+  final String id;
+  final Rect rect;
+  final double surfaceY;
+  final double minX;
+  final double maxX;
+
+  ShelfSurface({
+    required this.id,
+    required this.rect,
+    required this.surfaceY,
+    required this.minX,
+    required this.maxX,
+  });
+}
+
 class ShelfBoundsRegistry {
+  static final Map<String, GlobalKey> _shelfKeys = {};
   static final Map<String, Rect> homeShelves = {};
+
+  static void register(String key, GlobalKey gk) {
+    _shelfKeys[key] = gk;
+  }
+
+  static void unregister(String key) {
+    _shelfKeys.remove(key);
+    homeShelves.remove(key);
+  }
+
+  /// Returns all currently mounted and on-screen shelves on the Home page,
+  /// sorted from bottom to top (descending surfaceY: index 0 is lowest shelf,
+  /// index last is highest shelf).
+  static List<ShelfSurface> getLiveShelves({
+    required double topLimit,
+    required double bottomLimit,
+  }) {
+    final list = <ShelfSurface>[];
+    for (final entry in _shelfKeys.entries) {
+      final ctx = entry.value.currentContext;
+      if (ctx == null) continue;
+      final ro = ctx.findRenderObject() as RenderBox?;
+      if (ro == null || !ro.hasSize || !ro.attached) continue;
+      final pos = ro.localToGlobal(Offset.zero);
+      final rect = Rect.fromLTWH(pos.dx, pos.dy, ro.size.width, ro.size.height);
+      homeShelves[entry.key] = rect;
+
+      // Surface line is where books stand and pet sits/walks (near bottom of shelf box)
+      final surfaceY = pos.dy + ro.size.height - 14.0;
+      if (surfaceY > topLimit && surfaceY < bottomLimit) {
+        list.add(ShelfSurface(
+          id: entry.key,
+          rect: rect,
+          surfaceY: surfaceY,
+          minX: (pos.dx + 26.0).clamp(24.0, 150.0),
+          maxX: (pos.dx + ro.size.width - 26.0).clamp(160.0, 1200.0),
+        ));
+      }
+    }
+    // Sort descending by surfaceY: index 0 is closest to the floor, index last is highest up
+    list.sort((a, b) => b.surfaceY.compareTo(a.surfaceY));
+    return list;
+  }
 }
 
 class TodoBoundsRegistry {
@@ -59,41 +119,24 @@ class _PetOverlayState extends State<PetOverlay> with TickerProviderStateMixin {
   void didUpdateWidget(PetOverlay old) {
     super.didUpdateWidget(old);
     if (old.tab != widget.tab) {
-      if (_fleeing) {
-        _fleeing = false;
-        _offScreen = false;
-      }
       _loopId++;
-      _handleTabTransition(old.tab, widget.tab);
+      _fleeTimer?.cancel();
+      _fleeing = false;
+      _offScreen = false;
+      if (widget.tab == 0) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && widget.tab == 0) {
+            _initPosition();
+            _startLifeLoop();
+          }
+        });
+      } else {
+        setState(() {
+          _naughtyEmoji = null;
+          _state = 'sit';
+        });
+      }
     }
-  }
-
-  Future<void> _handleTabTransition(int oldTab, int newTab) async {
-    final curLoop = _loopId;
-    if (!mounted) return;
-    final size = MediaQuery.sizeOf(context);
-    final padding = MediaQuery.paddingOf(context);
-    final floor = _floorY(size, padding);
-
-    // If standing on a shelf or to-do card, jump down immediately to the clear floor
-    if ((_y - floor).abs() > 10) {
-      await _jumpTo(_x, floor, loop: curLoop, rise: 22);
-      if (curLoop != _loopId || _fleeing || !mounted) return;
-    }
-
-    setState(() {
-      _y = floor;
-      _naughtyEmoji = null;
-    });
-
-    // Walk horizontally across as the page changes ("walk through the next page")
-    final walkDir = newTab >= oldTab ? 1.0 : -1.0;
-    final targetX = (_x + walkDir * (60.0 + Random().nextDouble() * 50.0)).clamp(40.0, size.width - 60.0);
-    await _walkTo(targetX, loop: curLoop, speed: 85);
-    if (curLoop != _loopId || _fleeing || !mounted) return;
-
-    setState(() => _state = 'sit');
-    _startLifeLoop();
   }
 
   @override
@@ -121,7 +164,7 @@ class _PetOverlayState extends State<PetOverlay> with TickerProviderStateMixin {
   }
 
   Future<void> _flee() async {
-    if (_fleeing || store.settings.pet == 'none') return;
+    if (_fleeing || store.settings.pet == 'none' || widget.tab != 0) return;
     final kind = store.settings.pet;
     _fleeing = true;
     _loopId++;
@@ -175,7 +218,7 @@ class _PetOverlayState extends State<PetOverlay> with TickerProviderStateMixin {
   }
 
   void _tapPet() {
-    if (_fleeing || store.settings.pet == 'none') return;
+    if (_fleeing || store.settings.pet == 'none' || widget.tab != 0) return;
     final kind = store.settings.pet;
     Sfx.pet(kind, 'call');
     setState(() {
@@ -277,82 +320,46 @@ class _PetOverlayState extends State<PetOverlay> with TickerProviderStateMixin {
     }
   }
 
-  Rect? _findNearestPlatform(List<Rect> platforms, {Rect? current}) {
-    if (platforms.isEmpty) return null;
-    Rect? nearest;
-    double minD = double.infinity;
-    for (final r in platforms) {
-      if (r == current) continue;
-      final targetX = _x.clamp(r.left + 24.0, r.right - 24.0);
-      final targetY = r.top;
-      final dx = targetX - _x;
-      final dy = targetY - _y;
-      final dist = sqrt(dx * dx + dy * dy);
-      if (dist < minD) {
-        minD = dist;
-        nearest = r;
-      }
-    }
-    return nearest;
-  }
-
-  Future<void> _doBirdFlightRoutine(
+  Future<void> _doBirdHomeFlightRoutine(
     Size size,
     EdgeInsets padding,
     double floor,
+    List<ShelfSurface> shelves,
     int curLoop,
     Random rnd,
   ) async {
-    // 1. Bird takes off into the sky with a happy chirp!
+    // 1. Chirp and take off upwards into the sky!
     Sfx.pet('bird', 'call');
-    final takeOffY = (floor * 0.45 + rnd.nextDouble() * 70.0).clamp(padding.top + 75.0, floor - 100.0);
+    final takeOffY = (floor * 0.40 + rnd.nextDouble() * 60.0).clamp(padding.top + 75.0, floor - 100.0);
     final takeOffX = (_x + (rnd.nextBool() ? 80.0 : -80.0)).clamp(40.0, size.width - 60.0);
-    await _flyTo(takeOffX, takeOffY, loop: curLoop, speed: 125, swoop: 26);
-    if (curLoop != _loopId || _fleeing) return;
+    await _flyTo(takeOffX, takeOffY, loop: curLoop, speed: 130, swoop: 26);
+    if (curLoop != _loopId || _fleeing || widget.tab != 0) return;
 
-    // 2. Swoop and glide across the air
-    final swoopCount = 1 + rnd.nextInt(2);
-    for (int i = 0; i < swoopCount; i++) {
-      final destX = (_x < size.width * 0.5)
-          ? size.width * (0.65 + rnd.nextDouble() * 0.25)
-          : size.width * (0.10 + rnd.nextDouble() * 0.25);
-      final destY = (padding.top + 70.0 + rnd.nextDouble() * (floor - padding.top - 180.0))
-          .clamp(padding.top + 70.0, floor - 100.0);
-      await _flyTo(destX.clamp(40.0, size.width - 60.0), destY, loop: curLoop, speed: 140, swoop: 24);
-      if (curLoop != _loopId || _fleeing) return;
-    }
+    // 2. Swoop through the air
+    final destX = (_x < size.width * 0.5)
+        ? size.width * (0.65 + rnd.nextDouble() * 0.25)
+        : size.width * (0.10 + rnd.nextDouble() * 0.25);
+    final destY = (padding.top + 70.0 + rnd.nextDouble() * (floor - padding.top - 180.0))
+        .clamp(padding.top + 70.0, floor - 100.0);
+    await _flyTo(destX.clamp(40.0, size.width - 60.0), destY, loop: curLoop, speed: 140, swoop: 24);
+    if (curLoop != _loopId || _fleeing || widget.tab != 0) return;
 
-    // 3. Find the NEAREST platform (shelf on Home, todo on Todo) or floor to land on
+    // 3. Land on one of the shelves or floor
     double landX = _x;
     double landY = floor;
+    ShelfSurface? chosenShelf;
 
-    if (widget.tab == 0) {
-      final shelves = ShelfBoundsRegistry.homeShelves.values
-          .where((r) => r.top > padding.top + 60 && r.bottom < floor - 10)
-          .toList();
-      final nearestShelf = _findNearestPlatform(shelves);
-      if (nearestShelf != null) {
-        landX = _x.clamp(nearestShelf.left + 30.0, nearestShelf.right - 30.0);
-        landY = nearestShelf.bottom - 8;
-      }
-    } else if (widget.tab == 2) {
-      final todos = TodoBoundsRegistry.items.values
-          .where((r) => r.top > padding.top + 80 && r.bottom < floor - 20)
-          .toList();
-      final nearestTodo = _findNearestPlatform(todos);
-      if (nearestTodo != null) {
-        landX = _x.clamp(nearestTodo.left + 30.0, nearestTodo.right - 30.0);
-        landY = nearestTodo.top; // Stand above the box ledge
-      }
+    if (shelves.isNotEmpty && rnd.nextDouble() < 0.75) {
+      chosenShelf = shelves[rnd.nextInt(shelves.length)];
+      landX = _x.clamp(chosenShelf.minX, chosenShelf.maxX);
+      landY = chosenShelf.surfaceY;
     } else {
-      // On Settings, Stats, and Library: bird lands strictly on the clear floor
       landX = _x.clamp(40.0, size.width - 60.0);
       landY = floor;
     }
 
-    // Glide down to land smoothly
     await _flyTo(landX, landY, loop: curLoop, speed: 115, swoop: 14);
-    if (curLoop != _loopId || _fleeing) return;
+    if (curLoop != _loopId || _fleeing || widget.tab != 0) return;
 
     setState(() {
       _x = landX;
@@ -361,16 +368,20 @@ class _PetOverlayState extends State<PetOverlay> with TickerProviderStateMixin {
     });
     Sfx.pet('bird', 'land');
 
-    // Perch on shelf / todo / floor: sing notes and look around!
-    if (rnd.nextDouble() < 0.7) {
-      setState(() {
-        _naughtyEmoji = '🎵';
-      });
-      Sfx.pet('bird', 'call');
-      await Future.delayed(Duration(milliseconds: 1800 + rnd.nextInt(1500)));
-      if (curLoop != _loopId || _fleeing) return;
-      setState(() => _naughtyEmoji = null);
+    // If on a shelf: walk through the shelf, sing notes!
+    if (chosenShelf != null) {
+      final walkTarget = (_x + (rnd.nextBool() ? 1 : -1) * (30.0 + rnd.nextDouble() * 50.0))
+          .clamp(chosenShelf.minX, chosenShelf.maxX);
+      await _walkTo(walkTarget, speed: 60, loop: curLoop);
+      if (curLoop != _loopId || _fleeing || widget.tab != 0) return;
     }
+
+    // Sing notes
+    setState(() => _naughtyEmoji = '🎵');
+    Sfx.pet('bird', 'call');
+    await Future.delayed(Duration(milliseconds: 1800 + rnd.nextInt(1200)));
+    if (curLoop != _loopId || _fleeing || widget.tab != 0) return;
+    setState(() => _naughtyEmoji = null);
   }
 
   Future<void> _startLifeLoop() async {
@@ -378,6 +389,7 @@ class _PetOverlayState extends State<PetOverlay> with TickerProviderStateMixin {
     final rnd = Random();
 
     while (mounted && curLoop == _loopId && !_fleeing && !_offScreen) {
+      if (widget.tab != 0) return;
       if (store.settings.pet == 'none') {
         await Future.delayed(const Duration(milliseconds: 500));
         continue;
@@ -388,188 +400,160 @@ class _PetOverlayState extends State<PetOverlay> with TickerProviderStateMixin {
       final floor = _floorY(size, padding);
       final kind = store.settings.pet;
 
-      // Special BIRD Flight: birds take flight periodically across all screens
-      if (kind == 'bird' && rnd.nextDouble() < 0.55) {
-        await _doBirdFlightRoutine(size, padding, floor, curLoop, rnd);
+      // Query live on-screen shelf platforms on Home (sorted bottom-to-top)
+      final shelves = ShelfBoundsRegistry.getLiveShelves(
+        topLimit: padding.top + 70,
+        bottomLimit: floor - 10,
+      );
+
+      // --- Bird Routine (Home only) ---
+      if (kind == 'bird' && rnd.nextDouble() < 0.50) {
+        await _doBirdHomeFlightRoutine(size, padding, floor, shelves, curLoop, rnd);
         continue;
       }
 
-      // --- Tab 0: Home page behavior ---
-      if (widget.tab == 0) {
-        final shelves = ShelfBoundsRegistry.homeShelves.values
-            .where((r) => r.top > padding.top + 60 && r.bottom < floor - 10)
-            .toList();
+      // --- Four-legged pets (Cat, Dog, Rabbit) on Home Shelves & Floor ---
+      final onFloor = (_y - floor).abs() < 14;
 
-        final onFloor = (_y - floor).abs() < 14;
+      // Detect which shelf pet is currently standing on (if any)
+      ShelfSurface? curShelf;
+      for (final s in shelves) {
+        if ((_y - s.surfaceY).abs() < 16) {
+          curShelf = s;
+          break;
+        }
+      }
 
-        if (onFloor && shelves.isNotEmpty && rnd.nextDouble() < 0.70) {
-          // ALWAYS jump to the NEAREST platform (shelf)
-          final targetShelf = _findNearestPlatform(shelves);
-          if (targetShelf != null) {
-            final targetX = _x.clamp(targetShelf.left + 30.0, targetShelf.right - 30.0);
-            final targetY = targetShelf.bottom - 8;
+      if (onFloor || curShelf == null) {
+        // Pet is currently on the floor!
+        if ((_y - floor).abs() > 2) {
+          setState(() => _y = floor);
+        }
 
-            // Walk underneath the nearest shelf first
-            await _walkTo(targetX, loop: curLoop);
-            if (curLoop != _loopId || _fleeing) return;
+        // Decide whether to explore shelves or roam floor
+        if (shelves.isNotEmpty && rnd.nextDouble() < 0.75) {
+          // Pet jumps into the shelves! Start with lowest shelf (shelves[0])
+          final targetShelf = shelves[0];
+          final targetX = _x.clamp(targetShelf.minX, targetShelf.maxX);
 
-            // Jump onto the nearest shelf!
-            await _jumpTo(targetX, targetY, loop: curLoop, rise: 46);
-            if (curLoop != _loopId || _fleeing) return;
+          // 1. Walk underneath the shelf first
+          await _walkTo(targetX, loop: curLoop);
+          if (curLoop != _loopId || _fleeing || widget.tab != 0) return;
 
-            // Perch, sit, groom, or nap on shelf
-            setState(() => _state = 'sit');
-            await Future.delayed(Duration(milliseconds: 1200 + rnd.nextInt(1200)));
-            if (curLoop != _loopId || _fleeing) return;
+          // 2. Jump UPWARDS onto the shelf!
+          await _jumpTo(targetX, targetShelf.surfaceY, loop: curLoop, rise: 48);
+          if (curLoop != _loopId || _fleeing || widget.tab != 0) return;
 
+          // Land and sit
+          setState(() => _state = 'sit');
+          await Future.delayed(Duration(milliseconds: 1000 + rnd.nextInt(1000)));
+          if (curLoop != _loopId || _fleeing || widget.tab != 0) return;
+        } else {
+          // Roam the floor for a bit
+          final deltaX = (rnd.nextBool() ? 1 : -1) * (45.0 + rnd.nextDouble() * 80.0);
+          final targetFloorX = (_x + deltaX).clamp(40.0, size.width - 60.0);
+          await _walkTo(targetFloorX, loop: curLoop);
+          if (curLoop != _loopId || _fleeing || widget.tab != 0) return;
+
+          setState(() => _state = 'sit');
+          if (rnd.nextDouble() < 0.35) Sfx.pet(kind, 'call');
+          await Future.delayed(Duration(milliseconds: 1400 + rnd.nextInt(1400)));
+          if (curLoop != _loopId || _fleeing || widget.tab != 0) return;
+
+          if (rnd.nextDouble() < 0.45) {
             setState(() => _state = 'lick');
-            await Future.delayed(Duration(milliseconds: 1800 + rnd.nextInt(1500)));
-            if (curLoop != _loopId || _fleeing) return;
-
-            // Sometimes take a nap on the shelf
-            if (rnd.nextDouble() < 0.5) {
-              setState(() {
-                _state = 'sleep';
-                _naughtyEmoji = '💤';
-              });
-              Sfx.pet(kind, 'sleep');
-              await Future.delayed(Duration(milliseconds: 3500 + rnd.nextInt(3000)));
-              if (curLoop != _loopId || _fleeing) return;
-              setState(() {
-                _state = 'sit';
-                _naughtyEmoji = null;
-              });
-            }
-
-            // Maybe hop to the NEAREST adjacent shelf if one is nearby
-            final otherShelves = shelves.where((r) => r != targetShelf).toList();
-            final nextShelf = _findNearestPlatform(otherShelves);
-            if (nextShelf != null &&
-                (nextShelf.bottom - 8 - _y).abs() <= 190 &&
-                rnd.nextDouble() < 0.5) {
-              final nextX = _x.clamp(nextShelf.left + 30.0, nextShelf.right - 30.0);
-              final nextY = nextShelf.bottom - 8;
-              await _jumpTo(nextX, nextY, loop: curLoop, rise: 38);
-              if (curLoop != _loopId || _fleeing) return;
-
-              setState(() => _state = 'sit');
-              await Future.delayed(Duration(milliseconds: 1400 + rnd.nextInt(1200)));
-              if (curLoop != _loopId || _fleeing) return;
-            }
-
-            // Jump straight down to the floor directly under current position
-            await _jumpTo(_x, floor, loop: curLoop, rise: 24);
-            continue;
+            await Future.delayed(Duration(milliseconds: 1800 + rnd.nextInt(1400)));
+            if (curLoop != _loopId || _fleeing || widget.tab != 0) return;
           }
+          continue;
         }
       }
 
-      // --- Tab 2: To-do page behavior (jump into nearest to-do card & antics) ---
-      if (widget.tab == 2) {
-        final todos = TodoBoundsRegistry.items.values
-            .where((r) => r.top > padding.top + 80 && r.bottom < floor - 20)
-            .toList();
+      // --- When on a Shelf: Walk through the shelf, sit, groom, nap, and jump upwards! ---
+      final curIndex = curShelf != null ? shelves.indexOf(curShelf) : 0;
+      final activeShelf = curIndex >= 0 && curIndex < shelves.length ? shelves[curIndex] : shelves[0];
 
-        final onFloor = (_y - floor).abs() < 14;
-
-        if (onFloor && todos.isNotEmpty && rnd.nextDouble() < 0.75) {
-          // ALWAYS jump to the NEAREST to-do card
-          final targetTodo = _findNearestPlatform(todos);
-          if (targetTodo != null) {
-            final targetX = _x.clamp(targetTodo.left + 30.0, targetTodo.right - 30.0);
-            final targetY = targetTodo.top; // Stands on top of the box, never inside
-
-            // Walk underneath it first
-            await _walkTo(targetX, loop: curLoop);
-            if (curLoop != _loopId || _fleeing) return;
-
-            // Jump onto the nearest to-do item!
-            await _jumpTo(targetX, targetY, loop: curLoop, rise: 50);
-            if (curLoop != _loopId || _fleeing) return;
-
-            // Naughty antics!
-            final naughtyEmojis = switch (kind) {
-              'cat' => ['🐾', '🧶', '✨', '🐾'],
-              'dog' => ['🦴', '🐾', '🎾', '🐾'],
-              'rabbit' => ['🥕', '🌾', '🐾'],
-              'bird' => ['🪶', '🎵', '✨'],
-              _ => ['🐾', '✨'],
-            };
-            final emoji = naughtyEmojis[rnd.nextInt(naughtyEmojis.length)];
-
-            setState(() {
-              _state = 'naughty';
-              _naughtyEmoji = emoji;
-            });
-            Sfx.pet(kind, 'call');
-
-            await Future.delayed(Duration(milliseconds: 2000 + rnd.nextInt(1800)));
-            if (curLoop != _loopId || _fleeing) return;
-
-            // Maybe hop to the NEAREST neighboring to-do card if one is close by
-            final otherTodos = todos.where((r) => r != targetTodo).toList();
-            final nextTodo = _findNearestPlatform(otherTodos);
-            if (nextTodo != null &&
-                (nextTodo.top - _y).abs() <= 150 &&
-                rnd.nextDouble() < 0.5) {
-              final nextX = _x.clamp(nextTodo.left + 30.0, nextTodo.right - 30.0);
-              final nextY = nextTodo.top; // Stands on top of the card
-              await _jumpTo(nextX, nextY, loop: curLoop, rise: 34);
-              if (curLoop != _loopId || _fleeing) return;
-
-              setState(() {
-                _state = 'naughty';
-                _naughtyEmoji = '🐾';
-              });
-              await Future.delayed(Duration(milliseconds: 1600 + rnd.nextInt(1400)));
-              if (curLoop != _loopId || _fleeing) return;
-            }
-
-            // Jump straight down to the floor directly under current position
-            setState(() => _naughtyEmoji = null);
-            await _jumpTo(_x, floor, loop: curLoop, rise: 24);
-            continue;
-          }
-        }
+      // Keep Y snapped to current shelf surface in case of scrolling
+      if ((_y - activeShelf.surfaceY).abs() > 3) {
+        setState(() => _y = activeShelf.surfaceY);
       }
 
-      // --- Default Floor roaming (all tabs, including Tab 1 Library, Tab 3 Stats, Tab 4 Settings) ---
-      // Ensure pet strictly rests on the clear floor surface where no letters or words exist
-      if ((_y - floor).abs() > 2) {
-        setState(() => _y = floor);
+      // 1. Walk through the shelf!
+      final walkRange = (activeShelf.maxX - activeShelf.minX);
+      if (walkRange > 30) {
+        final walkOffset = (rnd.nextBool() ? 1 : -1) * (40.0 + rnd.nextDouble() * 80.0);
+        final walkTargetX = (_x + walkOffset).clamp(activeShelf.minX, activeShelf.maxX);
+        await _walkTo(walkTargetX, speed: 55, loop: curLoop);
+        if (curLoop != _loopId || _fleeing || widget.tab != 0) return;
       }
-      // Move a natural short distance along floor
-      final deltaX = (rnd.nextBool() ? 1 : -1) * (45.0 + rnd.nextDouble() * 80.0);
-      final targetFloorX = (_x + deltaX).clamp(40.0, size.width - 60.0);
-      await _walkTo(targetFloorX, loop: curLoop);
-      if (curLoop != _loopId || _fleeing) return;
 
-      // Sit quietly
+      // 2. Sit on the shelf
       setState(() => _state = 'sit');
-      if (rnd.nextDouble() < 0.35) {
-        Sfx.pet(kind, 'call');
+      if (rnd.nextDouble() < 0.35) Sfx.pet(kind, 'call');
+      await Future.delayed(Duration(milliseconds: 1200 + rnd.nextInt(1200)));
+      if (curLoop != _loopId || _fleeing || widget.tab != 0) return;
+
+      // 3. Groom / Lick paws
+      if (rnd.nextDouble() < 0.5) {
+        setState(() => _state = 'lick');
+        await Future.delayed(Duration(milliseconds: 1600 + rnd.nextInt(1400)));
+        if (curLoop != _loopId || _fleeing || widget.tab != 0) return;
       }
-      await Future.delayed(Duration(milliseconds: 1400 + rnd.nextInt(1600)));
-      if (curLoop != _loopId || _fleeing) return;
 
-      // Groom / Lick
-      setState(() => _state = 'lick');
-      await Future.delayed(Duration(milliseconds: 2000 + rnd.nextInt(1600)));
-      if (curLoop != _loopId || _fleeing) return;
-
-      // Sleep occasionally
-      if (rnd.nextDouble() < 0.4) {
+      // 4. Sometimes nap on the shelf between the books
+      if (rnd.nextDouble() < 0.35) {
         setState(() {
           _state = 'sleep';
           _naughtyEmoji = '💤';
         });
         Sfx.pet(kind, 'sleep');
-        await Future.delayed(Duration(milliseconds: 4000 + rnd.nextInt(3500)));
-        if (curLoop != _loopId || _fleeing) return;
+        await Future.delayed(Duration(milliseconds: 3200 + rnd.nextInt(2800)));
+        if (curLoop != _loopId || _fleeing || widget.tab != 0) return;
         setState(() {
           _state = 'sit';
           _naughtyEmoji = null;
         });
+      }
+
+      // 5. Sometimes walk again along the shelf to another spot
+      if (rnd.nextDouble() < 0.5 && walkRange > 40) {
+        final secondWalkX = (activeShelf.minX + rnd.nextDouble() * walkRange).clamp(activeShelf.minX, activeShelf.maxX);
+        await _walkTo(secondWalkX, speed: 50, loop: curLoop);
+        if (curLoop != _loopId || _fleeing || widget.tab != 0) return;
+        setState(() => _state = 'sit');
+        await Future.delayed(const Duration(milliseconds: 800));
+        if (curLoop != _loopId || _fleeing || widget.tab != 0) return;
+      }
+
+      // 6. Jump Decision: "jump into upwards of each shelf"
+      // Since shelves is sorted bottom-to-top, curIndex + 1 is the shelf ABOVE!
+      final hasShelfAbove = curIndex + 1 < shelves.length;
+      final shouldJumpUp = hasShelfAbove && rnd.nextDouble() < 0.70;
+
+      if (shouldJumpUp) {
+        // Jump UPWARDS to the shelf above!
+        final nextShelfAbove = shelves[curIndex + 1];
+        final jumpX = _x.clamp(nextShelfAbove.minX, nextShelfAbove.maxX);
+        await _jumpTo(jumpX, nextShelfAbove.surfaceY, loop: curLoop, rise: 48);
+        if (curLoop != _loopId || _fleeing || widget.tab != 0) return;
+        continue;
+      } else {
+        // If no shelf above, or after reaching higher shelves, decide to jump down
+        if (curIndex > 0 && rnd.nextDouble() < 0.45) {
+          // Jump down to the shelf below!
+          final nextShelfBelow = shelves[curIndex - 1];
+          final jumpX = _x.clamp(nextShelfBelow.minX, nextShelfBelow.maxX);
+          await _jumpTo(jumpX, nextShelfBelow.surfaceY, loop: curLoop, rise: 22);
+          if (curLoop != _loopId || _fleeing || widget.tab != 0) return;
+          continue;
+        } else {
+          // Jump down to the floor
+          final jumpFloorX = _x.clamp(40.0, size.width - 60.0);
+          await _jumpTo(jumpFloorX, floor, loop: curLoop, rise: 24);
+          if (curLoop != _loopId || _fleeing || widget.tab != 0) return;
+          setState(() => _state = 'sit');
+          await Future.delayed(const Duration(milliseconds: 1000));
+        }
       }
     }
   }
@@ -580,7 +564,7 @@ class _PetOverlayState extends State<PetOverlay> with TickerProviderStateMixin {
       listenable: store,
       builder: (context, _) {
         final kind = store.settings.pet;
-        if (kind == 'none' || _offScreen) return const SizedBox.shrink();
+        if (widget.tab != 0 || kind == 'none' || _offScreen) return const SizedBox.shrink();
 
         return Stack(
           clipBehavior: Clip.none,

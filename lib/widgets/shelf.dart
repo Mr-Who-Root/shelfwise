@@ -56,6 +56,7 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
   final _sc = ScrollController();
   final _stackKey = GlobalKey();
   final _viewKey = GlobalKey();
+  final _boxKey = GlobalKey();
   late final AnimationController _shine =
       AnimationController(vsync: this, duration: const Duration(milliseconds: 700));
   late final Ticker _auto = createTicker(_autoScroll);
@@ -77,6 +78,10 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
     _sc.addListener(() {
       if (mounted) setState(() {});
     });
+    if (widget.home) {
+      final key = '${widget.col.id}-${widget.sub ? "sub" : "main"}';
+      ShelfBoundsRegistry.register(key, _boxKey);
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkOverflow();
       _reportBounds();
@@ -90,6 +95,10 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
     for (final it in widget.items) {
       if (!before.contains(it.id)) _fresh.add(it.id);
     }
+    if (widget.home) {
+      final key = '${widget.col.id}-${widget.sub ? "sub" : "main"}';
+      ShelfBoundsRegistry.register(key, _boxKey);
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkOverflow();
       _reportBounds();
@@ -100,7 +109,7 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
   void dispose() {
     if (widget.home) {
       final key = '${widget.col.id}-${widget.sub ? "sub" : "main"}';
-      ShelfBoundsRegistry.homeShelves.remove(key);
+      ShelfBoundsRegistry.unregister(key);
     }
     _auto.dispose();
     _shine.dispose();
@@ -110,7 +119,8 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
 
   void _reportBounds() {
     if (!mounted || !widget.home) return;
-    final ro = context.findRenderObject() as RenderBox?;
+    final ro = _boxKey.currentContext?.findRenderObject() as RenderBox? ??
+        context.findRenderObject() as RenderBox?;
     if (ro != null && ro.hasSize) {
       final pos = ro.localToGlobal(Offset.zero);
       final key = '${widget.col.id}-${widget.sub ? "sub" : "main"}';
@@ -285,6 +295,7 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
     final exp = widget.exp;
     return Column(mainAxisSize: MainAxisSize.min, children: [
       Container(
+        key: widget.home ? _boxKey : null,
         margin: const EdgeInsets.symmetric(horizontal: 14),
         child: exp ? _expanded(p) : _row(p),
       ),
