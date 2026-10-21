@@ -862,8 +862,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
               ]),
             ],
             actions: const [Btn('Close')],
-          ),
-        ));
+          );
+        }));
   }
 
   void _bookMenu(Collection c, Item b) {
