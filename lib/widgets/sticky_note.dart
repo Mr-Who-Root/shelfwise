@@ -160,7 +160,7 @@ class _StickyNoteWidgetState extends State<StickyNoteWidget>
         maxWidth: 340,
         actions: [
           const Btn('Close'),
-          Btn('Tear off 🗑️', kind: Kind.danger, onTap: () {
+          Btn('Tear off 🗑️', kind: Kind.dng, onTap: () {
             _tearNote();
             return true;
           }),
