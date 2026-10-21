@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'models.dart';
+import 'posts_models.dart';
 import 'sample_data.dart';
 import '../services/cd_player.dart';
 
@@ -87,8 +88,12 @@ class AppStore extends ChangeNotifier {
   int? lastBackup;
   Map<String, int> readLog = {}; // 'yyyy-mm-dd' → seconds spent reading
   int goal = 0; // books to finish this year (0 = no goal)
-  int goalYear = 0;
   int lastUpdateCheck = 0;
+  List<Post> posts = createSeedPosts();
+  Set<String> likedPosts = {};
+  Set<String> savedPosts = {};
+  Map<String, int> sharedPostCounts = {};
+  String postsView = 'list';
 
   Timer? _saveTimer;
 
@@ -132,6 +137,11 @@ class AppStore extends ChangeNotifier {
         if (goal > 0) 'goal': goal,
         if (goal > 0) 'goalYear': goalYear,
         if (lastUpdateCheck > 0) 'lastUpdateCheck': lastUpdateCheck,
+        'posts': posts.map((p) => p.toJson()).toList(),
+        if (likedPosts.isNotEmpty) 'likedPosts': likedPosts.toList(),
+        if (savedPosts.isNotEmpty) 'savedPosts': savedPosts.toList(),
+        if (sharedPostCounts.isNotEmpty) 'sharedPostCounts': sharedPostCounts,
+        'postsView': postsView,
       };
 
   void fromJson(Map<String, dynamic> j) {
@@ -152,6 +162,16 @@ class AppStore extends ChangeNotifier {
     goal = (j['goal'] as num?)?.toInt() ?? 0;
     goalYear = (j['goalYear'] as num?)?.toInt() ?? 0;
     lastUpdateCheck = (j['lastUpdateCheck'] as num?)?.toInt() ?? 0;
+    final pList = (j['posts'] as List?)?.map((e) => Post.fromJson((e as Map).cast<String, dynamic>())).toList();
+    if (pList != null && pList.isNotEmpty) {
+      posts = pList;
+    } else {
+      posts = createSeedPosts();
+    }
+    likedPosts = ((j['likedPosts'] ?? const []) as List).cast<String>().toSet();
+    savedPosts = ((j['savedPosts'] ?? const []) as List).cast<String>().toSet();
+    sharedPostCounts = ((j['sharedPostCounts'] ?? const {}) as Map).map((k, v) => MapEntry('$k', (v as num).toInt()));
+    postsView = (j['postsView'] ?? 'list') as String;
   }
 
   /// Call after any mutation: refreshes listeners and writes to disk shortly after.
@@ -191,6 +211,8 @@ class AppStore extends ChangeNotifier {
         for (final c in cols)
           for (final i in c.items)
             if (i.cover != null) i.cover!,
+        for (final p in posts)
+          if (p.bookCover != null) p.bookCover!,
       };
 
   File bookFile(String name) => File('${bookFiles.path}/$name');
@@ -232,6 +254,80 @@ class AppStore extends ChangeNotifier {
           } catch (_) {}
         }
       }
+    }
+  }
+
+  // ---------- posts ----------
+  bool isPostLiked(String id) => likedPosts.contains(id);
+  bool isPostSaved(String id) => savedPosts.contains(id);
+  int postLikes(Post p) => p.likeCount + (isPostLiked(p.id) ? 1 : 0);
+  int postShares(Post p) => p.shareCount + (sharedPostCounts[p.id] ?? 0);
+
+  bool toggleLikePost(String id) {
+    final liked = likedPosts.contains(id);
+    if (liked) {
+      likedPosts.remove(id);
+    } else {
+      likedPosts.add(id);
+    }
+    changed();
+    return !liked;
+  }
+
+  bool toggleSavePost(String id) {
+    final saved = savedPosts.contains(id);
+    if (saved) {
+      savedPosts.remove(id);
+    } else {
+      savedPosts.add(id);
+    }
+    changed();
+    return !saved;
+  }
+
+  void incrementSharePost(String id) {
+    sharedPostCounts[id] = (sharedPostCounts[id] ?? 0) + 1;
+    changed();
+  }
+
+  void deletePost(String id) {
+    posts.removeWhere((p) => p.id == id);
+    likedPosts.remove(id);
+    savedPosts.remove(id);
+    sharedPostCounts.remove(id);
+    changed();
+  }
+
+  Post addPost({
+    required String bookTitle,
+    required String bookAuthor,
+    String? bookCover,
+    required List<PostItem> items,
+  }) {
+    final myName = profile.name.trim().isNotEmpty ? profile.name.trim() : 'Alex Reader';
+    final myHandle = profile.handle.trim().isNotEmpty ? profile.handle.trim() : 'alexreads';
+    final newPost = Post(
+      id: 'm_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(9999)}',
+      mine: true,
+      authorName: myName,
+      authorHandle: myHandle,
+      bookTitle: bookTitle,
+      bookAuthor: bookAuthor,
+      bookCover: bookCover,
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+      likeCount: 0,
+      shareCount: 0,
+      items: items,
+    );
+    posts.insert(0, newPost);
+    changed();
+    return newPost;
+  }
+
+  void setPostsView(String view) {
+    if (postsView != view) {
+      postsView = view;
+      changed();
     }
   }
 

@@ -8,6 +8,7 @@ import '../widgets/common.dart';
 import '../widgets/pet_overlay.dart';
 import 'library_screen.dart';
 import 'onboarding.dart';
+import 'posts_screen.dart';
 import 'profile_screen.dart';
 import 'settings_screen.dart';
 import 'stats_screen.dart';
@@ -21,7 +22,7 @@ class Shell extends StatefulWidget {
 }
 
 class _ShellState extends State<Shell> {
-  int _tab = 0; // 0 home, 1 library, 2 to-do, 3 stats, 4 settings, 5 profile
+  int _tab = 0; // 0 home, 1 library, 2 to-do, 3 stats, 4 settings, 5 profile, 6 explore
 
   void go(int t) {
     dropFocus();
@@ -37,6 +38,7 @@ class _ShellState extends State<Shell> {
   Widget _page() => switch (_tab) {
         0 => LibraryScreen(key: const ValueKey('home'), home: true, onProfile: () => go(5), onTodo: () => go(2), onStats: () => go(3)),
         1 => LibraryScreen(key: const ValueKey('lib'), home: false, onProfile: () => go(5), onTodo: () => go(2), onStats: () => go(3)),
+        6 => const PostsScreen(key: ValueKey('explore')),
         2 => const TodoScreen(key: ValueKey('todo')),
         3 => const StatsScreen(key: ValueKey('stats')),
         4 => SettingsScreen(key: const ValueKey('settings'), onProfile: () => go(5), onReplay: () => Navigator.of(context).push(introRoute())),
@@ -110,9 +112,10 @@ class _NavBar extends StatelessWidget {
             listenable: store,
             builder: (_, _) => Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
               _HomeLibToggleBtn(tab: tab, onTab: onTab),
+              _NavBtn(Ic.explore, 'Explore', tab == 6, () => onTab(6)),
               _NavBtn(Ic.todo, 'To-do', tab == 2, () => onTab(2), dot: store.dueTodos.isNotEmpty),
               _NavBtn(Ic.stats, 'Stats', tab == 3, () => onTab(3)),
-              _NavBtn(Ic.settings, 'Settings', tab >= 4, () => onTab(4)),
+              _NavBtn(Ic.settings, 'Settings', tab == 4 || tab == 5, () => onTab(4)),
             ]),
           ),
         ),
