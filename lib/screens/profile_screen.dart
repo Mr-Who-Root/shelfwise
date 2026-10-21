@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../art.dart';
 import '../data/models.dart';
+import '../data/posts_models.dart';
 import '../data/store.dart';
 import '../icons.dart';
 import '../services/notify.dart';
@@ -127,6 +128,16 @@ class ProfileScreen extends StatelessWidget {
               )
             else
               for (final c in store.cols.where((c) => c.books.isNotEmpty)) _shelf(c),
+            const H2('My posts'),
+            if (store.posts.where((p) => p.mine).isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: Text('No posts yet. Share your thoughts on a book from the Explore tab.',
+                    textAlign: TextAlign.center, style: nu(13.5, FontWeight.w700, C.muted)),
+              )
+            else
+              for (final p in store.posts.where((p) => p.mine))
+                _profilePostCard(context, p),
             const H2('Reminders & sounds'),
             CardBox(
               pad: EdgeInsets.zero,
@@ -616,3 +627,146 @@ class _CropPainter extends CustomPainter {
   @override
   bool shouldRepaint(_CropPainter o) => o.r != r;
 }
+
+Widget _profilePostCard(BuildContext context, Post p) {
+  final lines = p.items.where((i) => i.isLine).map((i) => i.text).toList();
+  final words = p.items.where((i) => i.isWord).map((i) => i.text).toList();
+  final timeStr = formatTimeAgo(p.timestamp);
+  final likes = store.postLikes(p);
+  final shares = store.postShares(p);
+
+  return Container(
+    margin: const EdgeInsets.only(bottom: 12),
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: C.card,
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: C.line),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 36,
+              height: 44,
+              decoration: BoxDecoration(
+                color: C.chip,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: C.line),
+              ),
+              alignment: Alignment.center,
+              child: const Icon(Icons.menu_book_rounded, size: 20, color: Color(0xFFF26A21)),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(p.bookTitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: nu(14.5, FontWeight.w800, C.ink)),
+                  Text(p.bookAuthor, maxLines: 1, overflow: TextOverflow.ellipsis, style: nu(12, FontWeight.w600, C.muted)),
+                  Text(timeStr, style: nu(11, FontWeight.w600, C.muted)),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            // User can delete; strictly no edit/update option
+            Pressable(
+              onTap: () {
+                Buzz.medium();
+                openDialog((ctx) => AppDialog(
+                  title: 'Delete post?',
+                  children: [
+                    const Text('Are you sure you want to delete this post? This cannot be undone.'),
+                  ],
+                  actions: [
+                    Btn('Delete', kind: Kind.dng, onTap: () {
+                      store.deletePost(p.id);
+                      toast('Post deleted');
+                      return true;
+                    }),
+                    const Btn('Cancel'),
+                  ],
+                ));
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFDE8E8),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.delete_outline_rounded, size: 14, color: Color(0xFFDC2626)),
+                    const SizedBox(width: 4),
+                    Text('Delete', style: nu(12, FontWeight.w700, const Color(0xFFDC2626))),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (lines.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          for (final l in lines)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                '“$l”',
+                style: const TextStyle(
+                  fontFamily: F.serif,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  fontStyle: FontStyle.italic,
+                  height: 1.35,
+                  color: Color(0xFF332920),
+                ),
+              ),
+            ),
+        ],
+        if (words.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final w in words)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF0E6),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    w,
+                    style: const TextStyle(
+                      fontFamily: F.sans,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFFF26A21),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            const Icon(Icons.favorite_rounded, size: 14, color: Color(0xFFEF4444)),
+            const SizedBox(width: 4),
+            Text('$likes', style: nu(12, FontWeight.w700, C.muted)),
+            const SizedBox(width: 14),
+            const Icon(Icons.share_rounded, size: 14, color: Color(0xFFF26A21)),
+            const SizedBox(width: 4),
+            Text('$shares', style: nu(12, FontWeight.w700, C.muted)),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+

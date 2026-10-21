@@ -55,6 +55,7 @@ class _PostsScreenState extends State<PostsScreen> {
   @override
   Widget build(BuildContext context) {
     final topPad = MediaQuery.paddingOf(context).top;
+    final bottomPad = MediaQuery.paddingOf(context).bottom;
 
     return ListenableBuilder(
       listenable: store,
@@ -159,8 +160,8 @@ class _PostsScreenState extends State<PostsScreen> {
                     child: filtered.isEmpty
                         ? _buildEmptyState()
                         : isGrid
-                            ? _buildGrid(filtered)
-                            : _buildList(filtered),
+                            ? _buildGrid(filtered, bottomPad)
+                            : _buildList(filtered, bottomPad),
                   ),
                 ],
               ),
@@ -169,7 +170,7 @@ class _PostsScreenState extends State<PostsScreen> {
               Positioned(
                 left: 0,
                 right: 0,
-                bottom: 84, // Sits comfortably above bottom nav bar
+                bottom: 96 + bottomPad, // Sits cleanly above bottom nav bar
                 child: Center(
                   child: _WritePostFab(onTap: _openComposer),
                 ),
@@ -205,11 +206,11 @@ class _PostsScreenState extends State<PostsScreen> {
     );
   }
 
-  Widget _buildList(List<Post> posts) {
+  Widget _buildList(List<Post> posts, double bottomPad) {
     return ListView.builder(
       controller: _scrollCtrl,
       physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(16, 2, 16, 150),
+      padding: EdgeInsets.fromLTRB(16, 2, 16, 160 + bottomPad),
       itemCount: posts.length,
       itemBuilder: (context, i) {
         final p = posts[i];
@@ -230,14 +231,14 @@ class _PostsScreenState extends State<PostsScreen> {
     );
   }
 
-  Widget _buildGrid(List<Post> posts) {
+  Widget _buildGrid(List<Post> posts, double bottomPad) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final cols = constraints.maxWidth < 340 ? 1 : 2;
         return GridView.builder(
           controller: _scrollCtrl,
           physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(16, 2, 16, 150),
+          padding: EdgeInsets.fromLTRB(16, 2, 16, 160 + bottomPad),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: cols,
             crossAxisSpacing: 10,

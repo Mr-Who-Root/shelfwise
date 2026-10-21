@@ -90,7 +90,7 @@ class AppStore extends ChangeNotifier {
   int goal = 0; // books to finish this year (0 = no goal)
   int goalYear = 0;
   int lastUpdateCheck = 0;
-  List<Post> posts = createSeedPosts();
+  List<Post> posts = [];
   Set<String> likedPosts = {};
   Set<String> savedPosts = {};
   Map<String, int> sharedPostCounts = {};
@@ -163,12 +163,11 @@ class AppStore extends ChangeNotifier {
     goal = (j['goal'] as num?)?.toInt() ?? 0;
     goalYear = (j['goalYear'] as num?)?.toInt() ?? 0;
     lastUpdateCheck = (j['lastUpdateCheck'] as num?)?.toInt() ?? 0;
-    final pList = (j['posts'] as List?)?.map((e) => Post.fromJson((e as Map).cast<String, dynamic>())).toList();
-    if (pList != null && pList.isNotEmpty) {
-      posts = pList;
-    } else {
-      posts = createSeedPosts();
-    }
+    final pList = (j['posts'] as List?)
+        ?.map((e) => Post.fromJson((e as Map).cast<String, dynamic>()))
+        .where((p) => p.mine)
+        .toList();
+    posts = pList ?? [];
     likedPosts = ((j['likedPosts'] ?? const []) as List).cast<String>().toSet();
     savedPosts = ((j['savedPosts'] ?? const []) as List).cast<String>().toSet();
     sharedPostCounts = ((j['sharedPostCounts'] ?? const {}) as Map).map((k, v) => MapEntry('$k', (v as num).toInt()));

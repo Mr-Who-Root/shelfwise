@@ -150,14 +150,29 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
     var x = 22.0, prevMr = 0.0;
     for (final (i, it) in (items ?? _ordered).indexed) {
       final g = it.isDecor;
+      final isCd = it.gadget == 'cd';
       // decorations stand behind the glass like the books, drawn tall enough to peek over it
-      final iw = g ? w * .95 : w;
-      final ih = g ? h * shelfGadgetFactor(it.gadget!) : h;
-      final ml = i == 0 ? 0.0 : (g ? -w * .05 : -w * .32);
+      final double iw;
+      final double ih;
+      if (isCd) {
+        ih = h * .8;
+        iw = ih; // square, so the disc stays round
+      } else {
+        iw = g ? w * .95 : w;
+        ih = g ? h * shelfGadgetFactor(it.gadget!) : h;
+      }
+      final double ml;
+      if (i == 0) {
+        ml = 0.0;
+      } else if (isCd) {
+        ml = -ih * 0.34; // ~34% hidden behind the previous book
+      } else {
+        ml = g ? -w * .05 : -w * .32;
+      }
       x += prevMr + ml;
       out.add(_Slot(it, x, iw, ih));
       x += iw;
-      prevMr = g ? w * .28 : 0;
+      prevMr = isCd ? (w * .1) : (g ? w * .28 : 0);
     }
     return (out, x + prevMr + 30);
   }
@@ -326,8 +341,26 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
       final vw = cons.maxWidth;
       final rowH = _h + (lightsKind != null ? 44 : 34);
       final normal = <Widget>[], top = <Widget>[];
+      final unraised = <(int, _Slot)>[];
       for (final (i, s) in slots.indexed) {
-        (s.it.id == raised ? top : normal).add(_item(s, i, slots));
+        if (s.it.id == raised) {
+          top.add(_item(s, i, slots));
+        } else {
+          unraised.add((i, s));
+        }
+      }
+      // Book immediately to the left of CD stays in front (z-index: 2).
+      // CD disc leans behind the book (z-index: 1).
+      // In Flutter Stack, earlier children are rendered underneath later children.
+      unraised.sort((a, b) {
+        final (ai, aslot) = a;
+        final (bi, bslot) = b;
+        final az = (aslot.it.gadget == 'cd' && ai > 0) ? (ai - 1) * 10 - 1 : ai * 10;
+        final bz = (bslot.it.gadget == 'cd' && bi > 0) ? (bi - 1) * 10 - 1 : bi * 10;
+        return az.compareTo(bz);
+      });
+      for (final (i, s) in unraised) {
+        normal.add(_item(s, i, slots));
       }
       final totalWidth = max(total, vw);
       return Stack(clipBehavior: Clip.none, children: [
@@ -483,7 +516,9 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
                 null,
                 const [],
                 it.isDecor
-                    ? GadgetView(it.gadget!, w: w * .95, h: h * shelfGadgetFactor(it.gadget!), lit: it.lit)
+                    ? (it.gadget == 'cd'
+                        ? GadgetView(it.gadget!, w: h * .8, h: h * .8, lit: it.lit)
+                        : GadgetView(it.gadget!, w: w * .95, h: h * shelfGadgetFactor(it.gadget!), lit: it.lit))
                     : _Shadowed(child: BookCover(it, w: w, h: h)),
               ),
           ],
@@ -514,10 +549,16 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
         ..rotateZ(-3 * pi / 180)
         ..scaleByDouble(widget.home ? 1.15 : 1.12, widget.home ? 1.15 : 1.12, 1, 1);
     } else if (lifted) {
-      m = Matrix4.identity()
-        ..translateByDouble(0, -16, 0, 1)
-        ..rotateZ(-4 * pi / 180)
-        ..scaleByDouble(1.1, 1.1, 1, 1);
+      if (it.gadget == 'cd') {
+        m = Matrix4.identity()
+          ..translateByDouble(0, -8, 0, 1)
+          ..rotateZ(3 * pi / 180);
+      } else {
+        m = Matrix4.identity()
+          ..translateByDouble(0, -16, 0, 1)
+          ..rotateZ(-4 * pi / 180)
+          ..scaleByDouble(1.1, 1.1, 1, 1);
+      }
     } else {
       m = Matrix4.identity()..translateByDouble(dx, 0, 0, 1);
     }
