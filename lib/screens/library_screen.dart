@@ -970,7 +970,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                             ],
                           ),
                         ),
-                        const Icon(Icons.add_circle, color: C.brown, size: 24),
+                        Icon(Icons.add_circle, color: C.brown, size: 24),
                       ],
                     ),
                   ),

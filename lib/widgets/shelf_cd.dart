@@ -121,12 +121,11 @@ class _ShelfCdWidgetState extends State<ShelfCdWidget>
   Future<void> _pickAndUploadSong(BuildContext ctx, StateSetter set) async {
     final PlatformFile? f;
     try {
-      final res = await FilePicker.platform.pickFiles(
+      f = await FilePicker.pickFile(
         type: FileType.custom,
         allowedExtensions: const ['mp3', 'm4a', 'wav', 'aac', 'ogg'],
         dialogTitle: 'Select an MP3 song for your CD',
       );
-      f = res?.files.firstOrNull;
     } catch (_) {
       toast('Could not open file picker');
       return;
@@ -136,23 +135,15 @@ class _ShelfCdWidgetState extends State<ShelfCdWidget>
 
     toast('Uploading ${f.name}… 🎵');
     try {
-      final ext = f.extension?.toLowerCase() ?? 'mp3';
+      final ext = f.name.contains('.') ? f.name.split('.').last.toLowerCase() : 'mp3';
       final fileName = 'cd_${newId()}.$ext';
       final dest = store.audioFile(fileName);
 
       final src = f.path;
       if (src != null && File(src).existsSync()) {
         await File(src).copy(dest.path);
-      } else if (f.bytes != null) {
-        await dest.writeAsBytes(f.bytes!, flush: true);
       } else {
-        final streamBytes = await f.readStream?.toList();
-        if (streamBytes != null && streamBytes.isNotEmpty) {
-          final allBytes = streamBytes.expand((b) => b).toList();
-          await dest.writeAsBytes(allBytes, flush: true);
-        } else {
-          throw Exception('Empty file data');
-        }
+        await dest.writeAsBytes(await f.readAsBytes(), flush: true);
       }
 
       final songTitle = f.name
