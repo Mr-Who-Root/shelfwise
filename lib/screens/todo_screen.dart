@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -253,9 +254,11 @@ class _TodoScreenState extends State<TodoScreen> {
               if (list.isEmpty) _empty() else _bento(list),
             ],
           ),
+          // ── Free-floating todo sticky notes ──────────────────────────
           for (int i = 0; i < store.todoNotes.length; i++) ...[
             Builder(builder: (ctx) {
               final note = store.todoNotes[i];
+              if (note.isPinned) return const SizedBox.shrink(); // rendered separately
               final noteW = switch (note.size) {
                 's' => 110.0,
                 'l' => 176.0,
@@ -279,25 +282,28 @@ class _TodoScreenState extends State<TodoScreen> {
               return Positioned(
                 left: curLeft,
                 top: curTop,
-                child: StickyNoteWidget(
-                  key: ValueKey(note.id),
+                child: _FreeTodoNote(
+                  key: ValueKey('free_${note.id}'),
                   note: note,
-                  width: noteW,
-                  minHeight: noteH,
-                  canEdit: true,
-                  onMoved: (dx, dy) {
-                    final newLeft = (curLeft + dx).clamp(6.0, (screenW - noteW - 6.0).clamp(6.0, screenW));
-                    final newTop = (curTop + dy).clamp(topPad + 50.0, (screenH - botPad - noteH - 60.0).clamp(topPad + 50.0, screenH));
-                    final nx = (newLeft / screenW) * 100.0;
-                    final ny = (newTop / screenH) * 100.0;
-                    store.moveTodoStickyNote(note.id, nx, ny);
-                  },
-                  onEdited: () => store.changed(),
-                  onTear: () => store.removeTodoStickyNote(note.id),
+                  noteW: noteW,
+                  noteH: noteH,
+                  curLeft: curLeft,
+                  curTop: curTop,
+                  screenW: screenW,
+                  screenH: screenH,
+                  topPad: topPad,
+                  botPad: botPad,
                 ),
               );
             }),
           ],
+          // ── Pinned notes (rendered on top, track their todo tile) ─────
+          for (final note in store.todoNotes)
+            if (note.isPinned)
+              _PinnedTodoNote(
+                key: ValueKey('pinned_${note.id}'),
+                note: note,
+              ),
           Positioned(
             right: 18,
             bottom: 96 + mq.padding.bottom,
@@ -387,6 +393,266 @@ class _TodoScreenState extends State<TodoScreen> {
     return Column(children: [
       for (final r in rows) Padding(padding: const EdgeInsets.only(bottom: 10), child: r),
     ]);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Free-floating todo sticky note widget with long-press → Pin detection
+// ---------------------------------------------------------------------------
+
+class _FreeTodoNote extends StatefulWidget {
+  final StickyNote note;
+  final double noteW, noteH, curLeft, curTop, screenW, screenH, topPad, botPad;
+  const _FreeTodoNote({
+    super.key,
+    required this.note,
+    required this.noteW,
+    required this.noteH,
+    required this.curLeft,
+    required this.curTop,
+    required this.screenW,
+    required this.screenH,
+    required this.topPad,
+    required this.botPad,
+  });
+
+  @override
+  State<_FreeTodoNote> createState() => _FreeTodoNoteState();
+}
+
+class _FreeTodoNoteState extends State<_FreeTodoNote> {
+  Timer? _pinTimer;
+  bool _pinGlow = false;
+
+  @override
+  void dispose() {
+    _pinTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startPinHold(Offset globalPos) {
+    _pinTimer?.cancel();
+    // Check if the note is hovering over any todo tile
+    final noteCentre = Rect.fromLTWH(
+      widget.curLeft,
+      widget.curTop,
+      widget.noteW,
+      widget.noteH,
+    ).center;
+    String? hovered;
+    for (final entry in TodoBoundsRegistry.items.entries) {
+      if (entry.value.contains(noteCentre)) {
+        hovered = entry.key;
+        break;
+      }
+    }
+    if (hovered == null) return; // not over any todo tile
+    setState(() => _pinGlow = true);
+    _pinTimer = Timer(const Duration(milliseconds: 2000), () {
+      if (!mounted) return;
+      setState(() => _pinGlow = false);
+      _showPinMenu(hovered!);
+    });
+  }
+
+  void _cancelPinHold() {
+    _pinTimer?.cancel();
+    if (mounted) setState(() => _pinGlow = false);
+  }
+
+  void _showPinMenu(String todoId) {
+    Sfx.play('pop');
+    openDialog((ctx) => AppDialog(
+          title: '📌 Pin this note?',
+          maxWidth: 340,
+          children: [
+            Text(
+              'Pin this sticky note to the to-do item it is hovering over.\n\n'
+              'The note will stay glued to that to-do item even as you scroll '  
+              'or delete other items above it.',
+              style: nu(14, FontWeight.w600, C.muted, 1.4),
+            ),
+          ],
+          actions: [
+            const Btn('Cancel'),
+            Btn('📌 Pin Note', kind: Kind.pri, onTap: () {
+              // Compute offset from the todo tile's top-left
+              final tileRect = TodoBoundsRegistry.items[todoId];
+              if (tileRect != null) {
+                final offX = widget.curLeft - tileRect.left;
+                final offY = widget.curTop - tileRect.top;
+                store.pinTodoStickyNote(widget.note.id, todoId, offX, offY);
+                toast('Note pinned! It will follow the to-do item.');
+              }
+              return true;
+            }),
+          ],
+        ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final note = widget.note;
+    return GestureDetector(
+      onLongPressStart: (d) => _startPinHold(d.globalPosition),
+      onLongPressEnd: (_) => _cancelPinHold(),
+      onLongPressCancel: _cancelPinHold,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        decoration: _pinGlow
+            ? BoxDecoration(
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFFFBE00).withOpacity(0.7),
+                    blurRadius: 18,
+                    spreadRadius: 4,
+                  )
+                ],
+              )
+            : null,
+        child: StickyNoteWidget(
+          key: ValueKey('inner_${note.id}'),
+          note: note,
+          width: widget.noteW,
+          minHeight: widget.noteH,
+          canEdit: true,
+          onMoved: (dx, dy) {
+            final newLeft = (widget.curLeft + dx).clamp(6.0, (widget.screenW - widget.noteW - 6.0).clamp(6.0, widget.screenW));
+            final newTop = (widget.curTop + dy).clamp(widget.topPad + 50.0, (widget.screenH - widget.botPad - widget.noteH - 60.0).clamp(widget.topPad + 50.0, widget.screenH));
+            final nx = (newLeft / widget.screenW) * 100.0;
+            final ny = (newTop / widget.screenH) * 100.0;
+            store.moveTodoStickyNote(note.id, nx, ny);
+          },
+          onEdited: () => store.changed(),
+          onTear: () => store.removeTodoStickyNote(note.id),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pinned note: always repositioned to its todo tile's live screen rect
+// ---------------------------------------------------------------------------
+
+class _PinnedTodoNote extends StatefulWidget {
+  final StickyNote note;
+  const _PinnedTodoNote({super.key, required this.note});
+
+  @override
+  State<_PinnedTodoNote> createState() => _PinnedTodoNoteState();
+}
+
+class _PinnedTodoNoteState extends State<_PinnedTodoNote> with SingleTickerProviderStateMixin {
+  late Ticker? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    // Refresh every frame so the note tracks smooth scroll movement
+    _ticker = createTicker((_) {
+      if (mounted) setState(() {});
+    });
+    _ticker!.start();
+  }
+
+  @override
+  void dispose() {
+    _ticker?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final note = widget.note;
+    final mq = MediaQuery.of(context);
+    final noteW = switch (note.size) {
+      's' => 110.0,
+      'l' => 176.0,
+      _ => 138.0,
+    };
+    final noteH = switch (note.size) {
+      's' => 90.0,
+      'l' => 144.0,
+      _ => 112.0,
+    };
+
+    final tileRect = TodoBoundsRegistry.items[note.pinnedTodoId];
+    if (tileRect == null) {
+      // Todo tile scrolled out of view — hide the note
+      return const SizedBox.shrink();
+    }
+
+    final left = tileRect.left + (note.pinOffsetX ?? 8.0);
+    final top  = tileRect.top  + (note.pinOffsetY ?? 8.0);
+
+    return Positioned(
+      left: left,
+      top: top,
+      child: GestureDetector(
+        // Long-press to unpin
+        onLongPress: () {
+          Sfx.play('pop');
+          openDialog((ctx) => AppDialog(
+                title: '📌 Unpin this note?',
+                maxWidth: 320,
+                children: [
+                  Text(
+                    'The note will be freed and float on the screen again at its current position.',
+                    style: nu(14, FontWeight.w600, C.muted, 1.4),
+                  ),
+                ],
+                actions: [
+                  const Btn('Cancel'),
+                  Btn('Unpin', kind: Kind.pri, onTap: () {
+                    // Convert current screen pos back to % coords
+                    final nx = (left / mq.size.width) * 100.0;
+                    final ny = (top / mq.size.height) * 100.0;
+                    store.moveTodoStickyNote(note.id, nx, ny);
+                    store.unpinTodoStickyNote(note.id);
+                    toast('Note unpinned');
+                    return true;
+                  }),
+                ],
+              ));
+        },
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            StickyNoteWidget(
+              key: ValueKey('pinInner_${note.id}'),
+              note: note,
+              width: noteW,
+              minHeight: noteH,
+              canEdit: true,
+              onMoved: (dx, dy) {
+                // Move relative to the tile
+                final newOffX = (note.pinOffsetX ?? 8.0) + dx;
+                final newOffY = (note.pinOffsetY ?? 8.0) + dy;
+                store.movePinnedTodoStickyNote(note.id, newOffX, newOffY);
+              },
+              onEdited: () => store.changed(),
+              onTear: () => store.removeTodoStickyNote(note.id),
+            ),
+            // Pin icon badge
+            Positioned(
+              top: -6,
+              right: -6,
+              child: Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFF6B35),
+                  shape: BoxShape.circle,
+                  boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                ),
+                child: const Text('📌', style: TextStyle(fontSize: 10)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

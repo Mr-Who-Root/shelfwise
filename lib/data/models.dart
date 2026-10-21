@@ -185,6 +185,10 @@ class StickyNote {
   String? shelfId;
   bool isTodo;
   int createdAt;
+  // Pin-to-todo fields
+  String? pinnedTodoId; // id of the Todo this note is pinned to
+  double? pinOffsetX;   // pixel offset from the todo tile's left edge
+  double? pinOffsetY;   // pixel offset from the todo tile's top edge
 
   StickyNote({
     String? id,
@@ -199,8 +203,13 @@ class StickyNote {
     this.shelfId,
     this.isTodo = false,
     int? createdAt,
+    this.pinnedTodoId,
+    this.pinOffsetX,
+    this.pinOffsetY,
   })  : id = id ?? newId(),
         createdAt = createdAt ?? DateTime.now().millisecondsSinceEpoch;
+
+  bool get isPinned => pinnedTodoId != null;
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -215,6 +224,9 @@ class StickyNote {
         if (shelfId != null) 'sId': shelfId,
         if (isTodo) 'todo': true,
         'at': createdAt,
+        if (pinnedTodoId != null) 'pinTodo': pinnedTodoId,
+        if (pinOffsetX != null) 'pinOX': pinOffsetX,
+        if (pinOffsetY != null) 'pinOY': pinOffsetY,
       };
 
   factory StickyNote.fromJson(Map<String, dynamic> j) => StickyNote(
@@ -230,6 +242,9 @@ class StickyNote {
         shelfId: j['sId'] as String?,
         isTodo: j['todo'] == true,
         createdAt: (j['at'] as num?)?.toInt(),
+        pinnedTodoId: j['pinTodo'] as String?,
+        pinOffsetX: (j['pinOX'] as num?)?.toDouble(),
+        pinOffsetY: (j['pinOY'] as num?)?.toDouble(),
       );
 }
 

@@ -494,6 +494,45 @@ class AppStore extends ChangeNotifier {
     changed();
   }
 
+  /// Pin [noteId] to [todoId] with the note's top-left at [offX],[offY]
+  /// relative to the todo tile's top-left corner.
+  void pinTodoStickyNote(String noteId, String todoId, double offX, double offY) {
+    for (final n in todoNotes) {
+      if (n.id == noteId) {
+        n.pinnedTodoId = todoId;
+        n.pinOffsetX = offX;
+        n.pinOffsetY = offY;
+        changed();
+        break;
+      }
+    }
+  }
+
+  /// Remove the pin so the note floats freely again (keeps its current x/y).
+  void unpinTodoStickyNote(String noteId) {
+    for (final n in todoNotes) {
+      if (n.id == noteId) {
+        n.pinnedTodoId = null;
+        n.pinOffsetX = null;
+        n.pinOffsetY = null;
+        changed();
+        break;
+      }
+    }
+  }
+
+  /// Update pin offset (called when the user drags a pinned note).
+  void movePinnedTodoStickyNote(String noteId, double offX, double offY) {
+    for (final n in todoNotes) {
+      if (n.id == noteId) {
+        n.pinOffsetX = offX;
+        n.pinOffsetY = offY;
+        changed();
+        break;
+      }
+    }
+  }
+
   Collection? colOf(Item it) {
     for (final c in cols) {
       if (c.items.contains(it)) return c;
