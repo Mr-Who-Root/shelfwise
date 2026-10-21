@@ -37,7 +37,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _buyCoffee() async {
     Buzz.medium();
     Sfx.play('fanfare');
-    final url = Uri.parse('https://buymeacoffee.com/shelfwise');
+    final url = Uri.parse('https://buymeacoffee.com/rrajkumarpadmanabhan');
     try {
       if (await canLaunchUrl(url)) {
         await launchUrl(url, mode: LaunchMode.externalApplication);
