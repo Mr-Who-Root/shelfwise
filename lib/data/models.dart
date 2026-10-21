@@ -233,6 +233,51 @@ class StickyNote {
       );
 }
 
+class ShelfCd {
+  String id;
+  String? audioFile;
+  String? title;
+  double x;
+  double y;
+  double r;
+  bool sub;
+  int createdAt;
+
+  ShelfCd({
+    String? id,
+    this.audioFile,
+    this.title,
+    this.x = 75.0,
+    this.y = 12.0,
+    this.r = 0.0,
+    this.sub = false,
+    int? createdAt,
+  })  : id = id ?? newId(),
+        createdAt = createdAt ?? DateTime.now().millisecondsSinceEpoch;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        if (audioFile != null) 'file': audioFile,
+        if (title != null) 't': title,
+        'x': x,
+        'y': y,
+        'r': r,
+        if (sub) 'sub': true,
+        'at': createdAt,
+      };
+
+  factory ShelfCd.fromJson(Map<String, dynamic> j) => ShelfCd(
+        id: j['id'] as String?,
+        audioFile: (j['file'] ?? j['audioFile']) as String?,
+        title: (j['t'] ?? j['title']) as String?,
+        x: (j['x'] as num?)?.toDouble() ?? 75.0,
+        y: (j['y'] as num?)?.toDouble() ?? 12.0,
+        r: (j['r'] as num?)?.toDouble() ?? 0.0,
+        sub: j['sub'] == true,
+        createdAt: (j['at'] as num?)?.toInt(),
+      );
+}
+
 class Collection {
   String id;
   String name;
@@ -244,6 +289,8 @@ class Collection {
   String? subLights;
   List<ShelfSticker> stickers;
   List<StickyNote> stickyNotes;
+  ShelfCd? mainCd;
+  ShelfCd? subCd;
 
   Collection({
     String? id,
@@ -256,6 +303,8 @@ class Collection {
     this.subLights,
     List<ShelfSticker>? stickers,
     List<StickyNote>? stickyNotes,
+    this.mainCd,
+    this.subCd,
   })  : id = id ?? newId(),
         items = items ?? [],
         stickers = stickers ?? [],
@@ -278,6 +327,15 @@ class Collection {
   List<StickyNote> notesFor({bool sub = false}) =>
       stickyNotes.where((n) => n.sub == sub).toList();
 
+  ShelfCd? cdFor({bool sub = false}) => sub ? subCd : mainCd;
+  void setCd(ShelfCd? cd, {bool sub = false}) {
+    if (sub) {
+      subCd = cd;
+    } else {
+      mainCd = cd;
+    }
+  }
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
@@ -291,6 +349,8 @@ class Collection {
           'stickers': stickers.map((e) => e.toJson()).toList(),
         if (stickyNotes.isNotEmpty)
           'stickyNotes': stickyNotes.map((e) => e.toJson()).toList(),
+        if (mainCd != null) 'mainCd': mainCd!.toJson(),
+        if (subCd != null) 'subCd': subCd!.toJson(),
       };
 
   factory Collection.fromJson(Map<String, dynamic> j) => Collection(
@@ -310,6 +370,8 @@ class Collection {
         stickyNotes: ((j['stickyNotes'] ?? const []) as List)
             .map((e) => StickyNote.fromJson((e as Map).cast<String, dynamic>()))
             .toList(),
+        mainCd: j['mainCd'] != null ? ShelfCd.fromJson((j['mainCd'] as Map).cast<String, dynamic>()) : null,
+        subCd: j['subCd'] != null ? ShelfCd.fromJson((j['subCd'] as Map).cast<String, dynamic>()) : null,
       );
 }
 

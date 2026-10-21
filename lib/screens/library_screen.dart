@@ -860,6 +860,122 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     ),
                   ),
               ]),
+              const SizedBox(height: 16),
+
+              // --- Music CD (Compact Disc) ---
+              Row(children: [
+                Text('Music CD 💿', style: nu(13, FontWeight.w800, C.chipText)),
+                const SizedBox(width: 8),
+                Text(c.cdFor(sub: sub) != null ? '1/1 added' : '0/1 (Max 1 per shelf)', style: nu(12, FontWeight.w600, C.muted)),
+              ]),
+              const SizedBox(height: 8),
+              if (c.cdFor(sub: sub) != null) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: C.field,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: C.inputLine),
+                  ),
+                  child: Row(
+                    children: [
+                      const Text('💿', style: TextStyle(fontSize: 22)),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              c.cdFor(sub: sub)!.title?.isNotEmpty == true
+                                  ? c.cdFor(sub: sub)!.title!
+                                  : 'CD on shelf (no song yet)',
+                              style: nu(13, FontWeight.w800),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Text(
+                              'Tap the CD directly on the shelf to upload MP3 or manage',
+                              style: nu(11, FontWeight.w600, C.muted),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Pressable(
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          store.removeCd(c, sub: sub);
+                          toast('CD removed & song deleted');
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: const Color(0x18FF0000),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else ...[
+                Pressable(
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    if (store.addCd(c, sub: sub)) {
+                      Sfx.play('pop');
+                      toast('CD placed on shelf! 💿 Tap it to upload your MP3 song.');
+                    }
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: C.field,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: C.inputLine),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: SweepGradient(
+                              colors: [
+                                Color(0xFFE8EEF5),
+                                Color(0xFFC7D7E8),
+                                Color(0xFFFFD5E5),
+                                Color(0xFFD6F5E3),
+                                Color(0xFFFFF2C2),
+                                Color(0xFFE8EEF5),
+                              ],
+                            ),
+                            boxShadow: [
+                              BoxShadow(color: Color(0x22000000), blurRadius: 4, offset: Offset(0, 2))
+                            ],
+                          ),
+                          alignment: Alignment.center,
+                          child: const Text('💿', style: TextStyle(fontSize: 20)),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Add Music CD to Shelf', style: nu(13.5, FontWeight.w800)),
+                              const SizedBox(height: 2),
+                              Text('Upload an MP3 song to play on Home (rotates while playing!)', style: nu(11.5, FontWeight.w600, C.muted)),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.add_circle, color: C.brown, size: 24),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ],
             actions: const [Btn('Close')],
           );

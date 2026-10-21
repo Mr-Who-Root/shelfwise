@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'models.dart';
 import 'sample_data.dart';
+import '../services/cd_player.dart';
 
 const shelfMax = 10;
 
@@ -63,6 +64,7 @@ class AppStore extends ChangeNotifier {
   late Directory _dir;
   late Directory images;
   late Directory bookFiles;
+  late Directory audioFiles;
 
   bool onboarded = false;
   bool toured = false;
@@ -98,6 +100,8 @@ class AppStore extends ChangeNotifier {
     if (!images.existsSync()) images.createSync(recursive: true);
     bookFiles = Directory('${_dir.path}/books');
     if (!bookFiles.existsSync()) bookFiles.createSync(recursive: true);
+    audioFiles = Directory('${_dir.path}/audio');
+    if (!audioFiles.existsSync()) audioFiles.createSync(recursive: true);
     try {
       if (_file.existsSync()) {
         fromJson(jsonDecode(await _file.readAsString()) as Map<String, dynamic>);
@@ -190,6 +194,7 @@ class AppStore extends ChangeNotifier {
       };
 
   File bookFile(String name) => File('${bookFiles.path}/$name');
+  File audioFile(String name) => File('${audioFiles.path}/$name');
 
   /// True when the book's PDF is actually on this phone (backups don't carry PDFs).
   bool copyExists(Item b) => b.file != null && bookFile(b.file!).existsSync();
@@ -210,6 +215,22 @@ class AppStore extends ChangeNotifier {
         try {
           f.deleteSync();
         } catch (_) {}
+      }
+    }
+    final keepAudio = {
+      for (final c in cols) ...[
+        if (c.mainCd?.audioFile != null) c.mainCd!.audioFile!,
+        if (c.subCd?.audioFile != null) c.subCd!.audioFile!,
+      ]
+    };
+    if (audioFiles.existsSync()) {
+      for (final f in audioFiles.listSync().whereType<File>()) {
+        final name = f.uri.pathSegments.last;
+        if (!keepAudio.contains(name)) {
+          try {
+            f.deleteSync();
+          } catch (_) {}
+        }
       }
     }
   }
@@ -366,6 +387,58 @@ class AppStore extends ChangeNotifier {
         changed();
         break;
       }
+    }
+  }
+
+  bool addCd(Collection c, {bool sub = false}) {
+    if (c.cdFor(sub: sub) != null) return false;
+    c.setCd(ShelfCd(sub: sub, x: 74.0, y: 12.0), sub: sub);
+    changed();
+    return true;
+  }
+
+  void moveCd(Collection c, double x, double y, {bool sub = false}) {
+    final cd = c.cdFor(sub: sub);
+    if (cd != null) {
+      cd.x = x.clamp(2.0, 96.0);
+      cd.y = y.clamp(2.0, 90.0);
+      changed();
+    }
+  }
+
+  void setCdSong(Collection c, {required String fileName, required String title, bool sub = false}) {
+    final cd = c.cdFor(sub: sub);
+    if (cd != null) {
+      if (cd.audioFile != null && cd.audioFile != fileName) {
+        deleteAudio(cd.audioFile);
+      }
+      cd.audioFile = fileName;
+      cd.title = title;
+      changed();
+    }
+  }
+
+  void removeCd(Collection c, {bool sub = false}) {
+    final cd = c.cdFor(sub: sub);
+    if (cd != null) {
+      ShelfCdPlayer.I.stopIfPlaying(cd.id);
+      if (cd.audioFile != null) {
+        deleteAudio(cd.audioFile);
+      }
+      c.setCd(null, sub: sub);
+      changed();
+    }
+  }
+
+  void deleteAudio(String? name) {
+    if (name == null || name.isEmpty) return;
+    try {
+      final f = audioFile(name);
+      if (f.existsSync()) {
+        f.deleteSync();
+      }
+    } catch (e) {
+      debugPrint('Shelfwise: could not delete audio file $name: $e');
     }
   }
 
@@ -763,6 +836,14 @@ class AppStore extends ChangeNotifier {
           } catch (_) {}
         }
       }
+      if (audioFiles.existsSync()) {
+        for (final f in audioFiles.listSync()) {
+          try {
+            f.deleteSync(recursive: true);
+          } catch (_) {}
+        }
+      }
+      ShelfCdPlayer.I.stop();
       if (_file.existsSync()) {
         _file.deleteSync();
       }

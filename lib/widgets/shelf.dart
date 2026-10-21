@@ -15,6 +15,7 @@ import 'book_share_sheet.dart';
 import 'common.dart';
 import 'dialogs.dart';
 import 'pet_overlay.dart';
+import 'shelf_cd.dart';
 import 'sticky_note.dart';
 
 class _Slot {
@@ -407,6 +408,29 @@ class _ShelfRowState extends State<ShelfRow> with TickerProviderStateMixin {
                       },
                     ),
                   ),
+                if (widget.col.cdFor(sub: widget.sub) != null) ...[
+                  Builder(builder: (ctx) {
+                    final cd = widget.col.cdFor(sub: widget.sub)!;
+                    return Positioned(
+                      left: (cd.x / 100 * totalWidth).clamp(8.0, totalWidth - 75.0),
+                      bottom: (cd.y / 100 * glassH).clamp(4.0, glassH + 10.0),
+                      child: ShelfCdWidget(
+                        key: ValueKey(cd.id),
+                        cd: cd,
+                        home: widget.home,
+                        onMoved: (dx, dy) {
+                          final nx = ((cd.x / 100 * totalWidth) + dx) / totalWidth * 100;
+                          final ny = ((cd.y / 100 * glassH) - dy) / glassH * 100;
+                          store.moveCd(widget.col, nx, ny, sub: widget.sub);
+                        },
+                        onTear: () {
+                          store.removeCd(widget.col, sub: widget.sub);
+                          toast('CD removed & song deleted');
+                        },
+                      ),
+                    );
+                  }),
+                ],
                 ...top,
               ]),
             ),
